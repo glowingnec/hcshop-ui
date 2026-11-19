@@ -91,9 +91,14 @@ export const CheckoutPage: React.FC = () => {
     setWard(wards[0] || '');
   };
 
-  // Checkout Error & Placed Order Success State (UC-37)
+  // Checkout Error, Price-Change (UC-37 2b), Online Payment Retry (UC-37 6a) & Success State
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [placedOrder, setPlacedOrder] = useState<Order | null>(null);
+  const [showPriceChangeModal, setShowPriceChangeModal] = useState(false);
+  const [priceChangeConfirmed, setPriceChangeConfirmed] = useState(false);
+  const [paymentGatewayState, setPaymentGatewayState] = useState<
+    'IDLE' | 'AWAITING' | 'FAILED'
+  >('IDLE');
 
   const availableCartItems = useMemo(() => {
     return cart
@@ -109,6 +114,20 @@ export const CheckoutPage: React.FC = () => {
           item.product.stock > 0
       );
   }, [cart, products]);
+
+  // UC-37 2b: Phát hiện sản phẩm thay đổi giá so với lúc thêm vào giỏ
+  const priceChangedItems = useMemo(
+    () =>
+      availableCartItems.filter(
+        (item) => item.product && item.addedPrice !== item.product.price
+      ),
+    [availableCartItems]
+  );
+
+  const visibleQuickVouchers = useMemo(
+    () => vouchers.filter((v) => !v.isDeleted && v.isActive),
+    [vouchers]
+  );
 
   const subtotal = useMemo(() => {
     return availableCartItems.reduce(
@@ -261,19 +280,39 @@ export const CheckoutPage: React.FC = () => {
     setDetailAddress('');
   };
 
-  const handleConfirmOrder = () => {
+  const effectivePaymentMethod: PaymentMethod =
+    isCodDisabled && paymentMethod === 'KhiNhanHang' ? 'ChuyenKhoan' : paymentMethod;
+
+  const executePlaceOrder = (overrideMethod?: PaymentMethod) => {
     setCheckoutError(null);
     const res = placeOrder({
       addressId: selectedAddressId,
-      paymentMethod: isCodDisabled && paymentMethod === 'KhiNhanHang' ? 'ChuyenKhoan' : paymentMethod,
+      paymentMethod: overrideMethod || effectivePaymentMethod,
       voucherCode: appliedVoucherCode,
     });
 
     if (!res.ok || !res.order) {
       setCheckoutError(res.message);
+      setPaymentGatewayState('IDLE');
       return;
     }
+    setPaymentGatewayState('IDLE');
     setPlacedOrder(res.order);
+  };
+
+  const handleConfirmOrder = () => {
+    setCheckoutError(null);
+    // UC-37 2b: Yêu cầu xác nhận lại tổng tiền nếu giá sản phẩm đã thay đổi
+    if (priceChangedItems.length > 0 && !priceChangeConfirmed) {
+      setShowPriceChangeModal(true);
+      return;
+    }
+    // UC-37 6a: Mở bước xác nhận cổng thanh toán trực tuyến (hỗ trợ thử lại / chuyển COD khi lỗi)
+    if (effectivePaymentMethod !== 'KhiNhanHang') {
+      setPaymentGatewayState('AWAITING');
+      return;
+    }
+    executePlaceOrder();
   };
 
   return (
@@ -302,6 +341,24 @@ export const CheckoutPage: React.FC = () => {
         <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200/80 text-xs text-rose-600 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{checkoutError}</span>
+        </div>
+      )}
+
+      {priceChangedItems.length > 0 && !priceChangeConfirmed && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 text-xs text-amber-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+            <span>
+              Có <strong>{priceChangedItems.length} sản phẩm</strong> vừa cập nhật giá bán kể từ lúc bạn thêm vào giỏ. Vui lòng kiểm tra lại tổng thanh toán trước khi đặt hàng.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPriceChangeModal(true)}
+            className="px-3 py-1 rounded-full bg-amber-600 text-white font-semibold shrink-0 hover:bg-amber-700"
+          >
+            Xem chi tiết
+          </button>
         </div>
       )}
 
@@ -337,6 +394,7 @@ export const CheckoutPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input
                     type="text"
+                    maxLength={100}
                     placeholder="Họ tên người nhận *"
                     value={recipientName}
                     onChange={(e) => setRecipientName(e.target.value)}
@@ -344,6 +402,7 @@ export const CheckoutPage: React.FC = () => {
                   />
                   <input
                     type="text"
+                    maxLength={10}
                     placeholder="Số điện thoại *"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
@@ -385,6 +444,7 @@ export const CheckoutPage: React.FC = () => {
                   </select>
                   <input
                     type="text"
+                    maxLength={300}
                     placeholder="Số nhà, tên đường *"
                     value={detailAddress}
                     onChange={(e) => setDetailAddress(e.target.value)}
@@ -480,6 +540,7 @@ export const CheckoutPage: React.FC = () => {
             <div className="flex items-center gap-2">
               <input
                 type="text"
+                maxLength={50}
                 value={voucherInput}
                 onChange={(e) => setVoucherInput(e.target.value.toUpperCase())}
                 placeholder="Nhập mã giảm giá (VD: WELCOME10)..."
@@ -521,7 +582,7 @@ export const CheckoutPage: React.FC = () => {
                 Chọn nhanh mã ưu đãi có sẵn:
               </p>
               <div className="flex flex-wrap gap-2">
-                {vouchers.map((v) => {
+                {visibleQuickVouchers.map((v) => {
                   const isApplied = appliedVoucherCode === v.code;
                   return (
                     <button
@@ -537,7 +598,7 @@ export const CheckoutPage: React.FC = () => {
                       <span className="text-xs font-bold block">{v.code}</span>
                       <span className="text-[10px] text-zinc-400 block">
                         Đơn tối thiểu {formatVND(v.minOrderValue)} · Còn{' '}
-                        {v.usageLimit - v.usedCount} lượt
+                        {Math.max(0, v.usageLimit - v.usedCount)} lượt
                       </span>
                     </button>
                   );
@@ -678,6 +739,7 @@ export const CheckoutPage: React.FC = () => {
           <div className="divide-y divide-zinc-100 max-h-64 overflow-y-auto pr-1">
             {availableCartItems.map((item) => {
               const p = item.product!;
+              const priceChanged = item.addedPrice !== p.price;
               return (
                 <div
                   key={item.productId}
@@ -693,7 +755,14 @@ export const CheckoutPage: React.FC = () => {
                       <p className="font-semibold text-zinc-900 truncate">
                         {p.name}
                       </p>
-                      <p className="text-zinc-400">SL: {item.quantity}</p>
+                      <p className="text-zinc-400">
+                        SL: {item.quantity}
+                        {priceChanged && (
+                          <span className="ml-1.5 text-amber-600 font-medium">
+                            (Giá đổi từ {formatVND(item.addedPrice)})
+                          </span>
+                        )}
+                      </p>
                     </div>
                   </div>
                   <span className="font-semibold text-zinc-900 shrink-0">
@@ -754,6 +823,174 @@ export const CheckoutPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* UC-37 2b: Modal xác nhận thay đổi giá sản phẩm */}
+      {showPriceChangeModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-zinc-200/80 max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-zinc-900">
+                Giá sản phẩm vừa thay đổi
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowPriceChangeModal(false)}
+                className="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-600 leading-relaxed">
+              Một số sản phẩm trong giỏ đã được cập nhật giá mới. Vui lòng xác nhận lại tổng tiền <strong>{formatVND(totalAmount)}</strong> trước khi tiếp tục đặt hàng:
+            </p>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {priceChangedItems.map((item) => (
+                <div
+                  key={item.productId}
+                  className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/70 text-xs flex items-center justify-between gap-2"
+                >
+                  <span className="font-semibold text-zinc-900 truncate">
+                    {item.product?.name}
+                  </span>
+                  <div className="text-right shrink-0">
+                    <span className="line-through text-zinc-400 mr-1.5">
+                      {formatVND(item.addedPrice)}
+                    </span>
+                    <span className="font-bold text-amber-800">
+                      {formatVND(item.product?.price || 0)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowPriceChangeModal(false)}
+                className="h-9 px-4 rounded-full border border-zinc-200 text-xs font-medium text-zinc-700"
+              >
+                Xem lại giỏ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPriceChangeConfirmed(true);
+                  setShowPriceChangeModal(false);
+                  if (effectivePaymentMethod !== 'KhiNhanHang') {
+                    setPaymentGatewayState('AWAITING');
+                  } else {
+                    executePlaceOrder();
+                  }
+                }}
+                className="h-9 px-5 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold"
+              >
+                Đồng ý giá mới &amp; Đặt hàng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UC-37 6a: Modal cổng thanh toán trực tuyến + luồng thất bại / thử lại / đổi COD */}
+      {paymentGatewayState !== 'IDLE' && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-zinc-200/80 max-w-md w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-zinc-900">
+                {paymentGatewayState === 'FAILED'
+                  ? 'Thanh toán trực tuyến thất bại'
+                  : effectivePaymentMethod === 'ChuyenKhoan'
+                  ? 'Xác nhận chuyển khoản VietQR'
+                  : 'Xác nhận thanh toán Ví điện tử'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPaymentGatewayState('IDLE')}
+                className="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {paymentGatewayState === 'AWAITING' ? (
+              <>
+                <div className="p-4 rounded-2xl bg-[#f8f9fa] border border-zinc-200/70 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Số tiền cần thanh toán</span>
+                    <span className="text-base font-bold text-zinc-900">
+                      {formatVND(totalAmount)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Phương thức</span>
+                    <span className="font-semibold text-zinc-800">
+                      {effectivePaymentMethod === 'ChuyenKhoan'
+                        ? 'Vietcombank · 0011009988776'
+                        : 'Ví điện tử (MoMo / VNPay)'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => executePlaceOrder()}
+                    className="w-full h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold"
+                  >
+                    Xác nhận đã thanh toán thành công
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentGatewayState('FAILED')}
+                    className="w-full h-9 rounded-full border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-medium"
+                  >
+                    Giả lập lỗi cổng thanh toán (UC-37 6a)
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Giao dịch không thành công</p>
+                    <p className="mt-0.5 text-rose-700">
+                      Cổng thanh toán từ chối hoặc hết thời gian chờ. Giỏ hàng và tồn kho của bạn vẫn được giữ nguyên (chưa tạo đơn).
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentGatewayState('AWAITING')}
+                    className="w-full h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold"
+                  >
+                    Thử thanh toán lại
+                  </button>
+                  {!isCodDisabled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentMethod('KhiNhanHang');
+                        executePlaceOrder('KhiNhanHang');
+                      }}
+                      className="w-full h-9 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold"
+                    >
+                      Chuyển sang Thanh toán khi nhận hàng (COD)
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setPaymentGatewayState('IDLE')}
+                    className="w-full h-8 text-xs text-zinc-500 hover:text-zinc-800"
+                  >
+                    Chọn phương thức khác
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

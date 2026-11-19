@@ -70,8 +70,9 @@ export const CustomerOrdersPage: React.FC = () => {
   const [selectedReason, setSelectedReason] = useState(CANCEL_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
 
-  // Quick Review Modal state (UC-53 / UC-54, ISS-03, ISS-09)
+  // Quick Review Modal state (UC-53 / UC-54, ISS-03, ISS-09, MAJ-06)
   const [reviewingItem, setReviewingItem] = useState<{
+    orderId: string;
     productId: string;
     productName: string;
     productImage: string;
@@ -160,15 +161,21 @@ export const CustomerOrdersPage: React.FC = () => {
     }
   };
 
-  const openReviewModal = (item: {
-    productId: string;
-    productName: string;
-    productImage: string;
-  }) => {
+  const openReviewModal = (
+    orderId: string,
+    item: {
+      productId: string;
+      productName: string;
+      productImage: string;
+    }
+  ) => {
     const existing = reviews.find(
-      (r) => r.productId === item.productId && r.userId === currentUser.id
+      (r) =>
+        r.orderId === orderId &&
+        r.productId === item.productId &&
+        r.userId === currentUser.id
     );
-    setReviewingItem(item);
+    setReviewingItem({ orderId, ...item });
     setReviewRating(existing ? existing.rating : 5);
     setReviewComment(existing ? existing.comment : '');
     setReviewImages(existing?.images || []);
@@ -181,7 +188,8 @@ export const CustomerOrdersPage: React.FC = () => {
       reviewingItem.productId,
       reviewRating,
       reviewComment,
-      reviewImages
+      reviewImages,
+      reviewingItem.orderId
     );
     setFeedback({ ok: res.ok, text: res.message });
     if (res.ok) {
@@ -568,6 +576,7 @@ export const CustomerOrdersPage: React.FC = () => {
                   {activeOrder.items.map((item) => {
                     const existingReview = reviews.find(
                       (r) =>
+                        r.orderId === activeOrder.id &&
                         r.productId === item.productId &&
                         r.userId === currentUser.id
                     );
@@ -606,7 +615,7 @@ export const CustomerOrdersPage: React.FC = () => {
                           {activeOrder.status === 'HoanThanh' && (
                             <button
                               type="button"
-                              onClick={() => openReviewModal(item)}
+                              onClick={() => openReviewModal(activeOrder.id, item)}
                               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#f4f4f5] hover:bg-zinc-900 hover:text-white text-zinc-800 text-[12px] font-medium transition-colors"
                             >
                               <Star className="w-3.5 h-3.5" />

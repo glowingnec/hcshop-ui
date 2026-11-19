@@ -106,7 +106,7 @@ export const SEED_ACCOUNT_LOCK_HISTORIES: AccountLockHistory[] = [
   {
     id: 'alh-1',
     userId: 'usr-cust-3',
-    action: 'LOCK',
+    newStatus: 'BiKhoa',
     reason: 'Vi phạm chính sách đặt hàng',
     actorName: 'Admin',
     createdAt: '2026-06-15T10:30:00Z',
@@ -211,6 +211,8 @@ export const SEED_STOCK_HISTORIES: StockHistory[] = [
   {
     id: 'sh-2',
     productId: 'prd-2',
+    orderId: 'ord-101',
+    orderCode: 'ORD-101',
     type: 'XuatBan',
     quantityChange: -2,
     stockBefore: 14,
@@ -233,6 +235,8 @@ export const SEED_STOCK_HISTORIES: StockHistory[] = [
   {
     id: 'sh-4',
     productId: 'prd-3',
+    orderId: 'ord-104',
+    orderCode: 'ORD-104',
     type: 'HoanDon',
     stockBefore: 17,
     quantityChange: 1,
@@ -257,6 +261,7 @@ export const SEED_VOUCHERS: Voucher[] = [
     usageLimit: 100,
     usedCount: 24,
     isActive: true,
+    isDeleted: false,
     createdAt: '2026-01-01T08:00:00Z',
   },
   {
@@ -271,6 +276,7 @@ export const SEED_VOUCHERS: Voucher[] = [
     usageLimit: 50,
     usedCount: 12,
     isActive: true,
+    isDeleted: false,
     createdAt: '2026-02-01T08:00:00Z',
   },
   {
@@ -285,6 +291,7 @@ export const SEED_VOUCHERS: Voucher[] = [
     usageLimit: 20,
     usedCount: 5,
     isActive: true,
+    isDeleted: false,
     createdAt: '2026-03-01T08:00:00Z',
   },
   {
@@ -299,6 +306,7 @@ export const SEED_VOUCHERS: Voucher[] = [
     usageLimit: 10,
     usedCount: 10,
     isActive: true,
+    isDeleted: false,
     createdAt: '2026-03-10T08:00:00Z',
   },
 ];
@@ -335,6 +343,7 @@ export const SEED_ORDERS: Order[] = [
     ],
     shippingAddress: SEED_ADDRESSES[0],
     paymentMethod: 'ChuyenKhoan',
+    voucherId: 'vch-1',
     voucherCode: 'WELCOME10',
     discountAmount: 200000,
     subtotal: 5650000,

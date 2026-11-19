@@ -14,7 +14,11 @@ import {
 import { useApp } from '../../context/AppContext';
 import { PaginationBar } from '../../components/common/PaginationBar';
 import { Product, StockMovementType } from '../../types/domain';
-import { formatVND, formatDateTime } from '../../utils/formatters';
+import {
+  formatVND,
+  formatDateTime,
+  STOCK_MOVEMENT_LABELS,
+} from '../../utils/formatters';
 
 type InventoryTab = 'STOCK_LIST' | 'HISTORY';
 
@@ -23,22 +27,22 @@ const MOVEMENT_META: Record<
   { label: string; badgeClass: string; sign: '+' | '-' }
 > = {
   NhapTang: {
-    label: 'Nhập kho',
+    label: STOCK_MOVEMENT_LABELS.NhapTang,
     badgeClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200/60',
     sign: '+',
   },
   XuatBan: {
-    label: 'Xuất bán',
+    label: STOCK_MOVEMENT_LABELS.XuatBan,
     badgeClass: 'bg-blue-50 text-blue-700 border border-blue-200/60',
     sign: '-',
   },
   DieuChinhGiam: {
-    label: 'Điều chỉnh giảm',
+    label: STOCK_MOVEMENT_LABELS.DieuChinhGiam,
     badgeClass: 'bg-amber-50 text-amber-800 border border-amber-200/60',
     sign: '-',
   },
   HoanDon: {
-    label: 'Hoàn kho đơn hủy',
+    label: STOCK_MOVEMENT_LABELS.HoanDon,
     badgeClass: 'bg-indigo-50 text-indigo-700 border border-indigo-200/60',
     sign: '+',
   },
@@ -577,7 +581,7 @@ export const InventoryManagementPage: React.FC = () => {
                             </span>
                           ) : (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                              An toàn
+                              Đủ hàng
                             </span>
                           )}
                         </td>
@@ -676,9 +680,16 @@ export const InventoryManagementPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="py-3 px-4 text-zinc-600">
-                          <div>{h.reasonOrNote}</div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span>{h.reasonOrNote}</span>
+                            {h.orderCode && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/60 font-mono text-[10px] font-semibold">
+                                Đơn #{h.orderCode}
+                              </span>
+                            )}
+                          </div>
                           {(h.supplier || h.importPrice) && (
-                            <div className="text-[11px] text-zinc-400">
+                            <div className="text-[11px] text-zinc-400 mt-0.5">
                               {h.supplier ? `NCC: ${h.supplier}` : ''}
                               {h.supplier && h.importPrice ? ' · ' : ''}
                               {h.importPrice
@@ -778,6 +789,7 @@ export const InventoryManagementPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                maxLength={200}
                 value={importSupplier}
                 onChange={(e) => setImportSupplier(e.target.value)}
                 placeholder="VD: Nhà phân phối chính hãng"
@@ -791,6 +803,7 @@ export const InventoryManagementPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                maxLength={500}
                 value={importNote}
                 onChange={(e) => setImportNote(e.target.value)}
                 placeholder="Nhập ghi chú phiếu nhập..."
@@ -886,6 +899,7 @@ export const InventoryManagementPage: React.FC = () => {
               {adjustReasonPreset === 'Lý do khác' && (
                 <textarea
                   rows={2}
+                  maxLength={500}
                   value={adjustCustomReason}
                   onChange={(e) => setAdjustCustomReason(e.target.value)}
                   placeholder="Nhập lý do điều chỉnh cụ thể..."
@@ -939,11 +953,12 @@ export const InventoryManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Số lượng tối thiểu
+                Số lượng tối thiểu *
               </label>
               <input
                 type="number"
                 min={0}
+                required
                 value={thresholdValue}
                 onChange={(e) => setThresholdValue(e.target.value)}
                 className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"

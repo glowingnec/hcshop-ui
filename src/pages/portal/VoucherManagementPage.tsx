@@ -5,6 +5,7 @@ import {
   Pencil,
   Trash2,
   Power,
+  Eye,
   CheckCircle2,
   AlertCircle,
   Tag,
@@ -15,11 +16,17 @@ import { useApp } from '../../context/AppContext';
 import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { PaginationBar } from '../../components/common/PaginationBar';
 import { DiscountType, Voucher } from '../../types/domain';
-import { formatVND, formatDate } from '../../utils/formatters';
+import {
+  formatVND,
+  formatDate,
+  formatDateTime,
+  ORDER_STATUS_META,
+} from '../../utils/formatters';
 
 export const VoucherManagementPage: React.FC = () => {
   const {
     vouchers,
+    orders,
     createVoucher,
     updateVoucher,
     toggleVoucherActive,
@@ -30,6 +37,7 @@ export const VoucherManagementPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [detailVoucher, setDetailVoucher] = useState<Voucher | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     type: 'DELETE' | 'TOGGLE';
     voucher: Voucher;
@@ -51,8 +59,13 @@ export const VoucherManagementPage: React.FC = () => {
   const [usageLimit, setUsageLimit] = useState('100');
   const [isActiveOnCreate, setIsActiveOnCreate] = useState(true);
 
+  const visibleVouchers = useMemo(
+    () => vouchers.filter((v) => !v.isDeleted),
+    [vouchers]
+  );
+
   const filteredVouchers = useMemo(() => {
-    return vouchers.filter((v) => {
+    return visibleVouchers.filter((v) => {
       if (statusFilter === 'ACTIVE' && !v.isActive) return false;
       if (statusFilter === 'INACTIVE' && v.isActive) return false;
       if (searchQuery.trim()) {
@@ -64,12 +77,21 @@ export const VoucherManagementPage: React.FC = () => {
       }
       return true;
     });
-  }, [vouchers, statusFilter, searchQuery]);
+  }, [visibleVouchers, statusFilter, searchQuery]);
 
   const paginatedVouchers = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
     return filteredVouchers.slice(start, start + pageSize);
   }, [filteredVouchers, currentPage]);
+
+  const detailVoucherOrders = useMemo(() => {
+    if (!detailVoucher) return [];
+    return orders.filter(
+      (o) =>
+        o.voucherId === detailVoucher.id ||
+        o.voucherCode?.toUpperCase() === detailVoucher.code.toUpperCase()
+    );
+  }, [detailVoucher, orders]);
 
   const openCreateModal = () => {
     setEditingVoucher(null);
@@ -180,14 +202,14 @@ export const VoucherManagementPage: React.FC = () => {
         <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
           {(
             [
-              { id: 'ALL', label: `Tất cả (${vouchers.length})` },
+              { id: 'ALL', label: `Tất cả (${visibleVouchers.length})` },
               {
                 id: 'ACTIVE',
-                label: `Đang bật (${vouchers.filter((v) => v.isActive).length})`,
+                label: `Đang bật (${visibleVouchers.filter((v) => v.isActive).length})`,
               },
               {
                 id: 'INACTIVE',
-                label: `Ngừng áp dụng (${vouchers.filter((v) => !v.isActive).length})`,
+                label: `Ngừng áp dụng (${visibleVouchers.filter((v) => !v.isActive).length})`,
               },
             ] as const
           ).map((tab) => (
@@ -313,6 +335,14 @@ export const VoucherManagementPage: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
+                    onClick={() => setDetailVoucher(voucher)}
+                    title="Xem chi tiết & lịch sử sử dụng (UC-47)"
+                    className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={() =>
                       setConfirmAction({ type: 'TOGGLE', voucher })
                     }
@@ -353,6 +383,131 @@ export const VoucherManagementPage: React.FC = () => {
         onPageChange={setCurrentPage}
       />
 
+      {/* UC-47: Voucher Detail & Usage History Modal (MAJ-03) */}
+      {detailVoucher && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-zinc-200/80 max-w-xl w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-900 text-white text-xs font-mono font-bold">
+                  <Tag className="w-3.5 h-3.5 text-blue-400" />
+                  {detailVoucher.code}
+                </span>
+                <span className="text-xs text-zinc-500">
+                  Chi tiết &amp; Lịch sử áp dụng (UC-47)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailVoucher(null)}
+                className="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs p-4 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60">
+              <div>
+                <span className="text-zinc-400 block">Mức giảm</span>
+                <span className="font-bold text-zinc-900">
+                  {detailVoucher.discountType === 'PhanTram'
+                    ? `${detailVoucher.discountValue}%`
+                    : formatVND(detailVoucher.discountValue)}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">Giảm tối đa</span>
+                <span className="font-semibold text-zinc-800">
+                  {detailVoucher.maxDiscountAmount
+                    ? formatVND(detailVoucher.maxDiscountAmount)
+                    : 'Không giới hạn'}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">Đơn tối thiểu</span>
+                <span className="font-semibold text-zinc-800">
+                  {formatVND(detailVoucher.minOrderValue)}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">Thời hạn</span>
+                <span className="font-medium text-zinc-800">
+                  {formatDate(detailVoucher.startDate)} → {formatDate(detailVoucher.endDate)}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">Lượt đã dùng</span>
+                <span className="font-bold text-zinc-900">
+                  {detailVoucher.usedCount} / {detailVoucher.usageLimit}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 block">Trạng thái</span>
+                <span className="font-semibold text-zinc-800">
+                  {detailVoucher.isActive ? 'Đang kích hoạt' : 'Ngừng áp dụng'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                Đơn hàng đã áp dụng mã này ({detailVoucherOrders.length})
+              </h4>
+              {detailVoucherOrders.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60 text-center text-xs text-zinc-500">
+                  Chưa có đơn hàng nào sử dụng mã {detailVoucher.code}.
+                </div>
+              ) : (
+                <div className="divide-y divide-zinc-100 border border-zinc-200/70 rounded-2xl overflow-hidden text-xs">
+                  {detailVoucherOrders.map((ord) => (
+                    <div
+                      key={ord.id}
+                      className="p-3 flex items-center justify-between gap-3 bg-white"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-zinc-900">
+                            #{ord.code}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                              ORDER_STATUS_META[ord.status].badgeClass
+                            }`}
+                          >
+                            {ORDER_STATUS_META[ord.status].label}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-zinc-500 mt-0.5">
+                          {ord.customerName} · {formatDateTime(ord.createdAt)}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-bold text-emerald-600">
+                          -{formatVND(ord.discountAmount)}
+                        </div>
+                        <div className="text-[11px] text-zinc-400">
+                          Tổng đơn: {formatVND(ord.totalAmount)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setDetailVoucher(null)}
+                className="px-4 py-2 rounded-full bg-zinc-900 text-white text-xs font-semibold"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create / Edit Voucher Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
@@ -386,6 +541,7 @@ export const VoucherManagementPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  maxLength={50}
                   disabled={Boolean(editingVoucher && editingVoucher.usedCount > 0)}
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -495,6 +651,7 @@ export const VoucherManagementPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                maxLength={500}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="VD: Áp dụng cho khách hàng mới..."

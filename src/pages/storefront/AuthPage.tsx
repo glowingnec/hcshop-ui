@@ -60,6 +60,7 @@ export const AuthPage: React.FC = () => {
   const [recoveryAnswer, setRecoveryAnswer] = useState('');
   const [recoveryNewPassword, setRecoveryNewPassword] = useState('');
   const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('');
+  const [recoveryLockedOut, setRecoveryLockedOut] = useState(false);
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode);
@@ -70,6 +71,7 @@ export const AuthPage: React.FC = () => {
       setRecoveryAnswer('');
       setRecoveryNewPassword('');
       setRecoveryConfirmPassword('');
+      setRecoveryLockedOut(false);
     }
   };
 
@@ -111,6 +113,7 @@ export const AuthPage: React.FC = () => {
     e.preventDefault();
     const res = lookupUserForRecovery(recoveryIdentifier);
     setFeedback({ ok: res.ok, text: res.message });
+    setRecoveryLockedOut(Boolean(res.isLockedOut));
     if (res.ok && res.user && res.securityQuestion) {
       setRecoveryUserId(res.user.id);
       setRecoveryQuestion(res.securityQuestion);
@@ -127,7 +130,11 @@ export const AuthPage: React.FC = () => {
       confirmPassword: recoveryConfirmPassword,
     });
     setFeedback({ ok: res.ok, text: res.message });
+    if (res.isLockedOut) {
+      setRecoveryLockedOut(true);
+    }
     if (res.ok) {
+      setRecoveryLockedOut(false);
       setTimeout(() => navigate('/account'), 800);
     }
   };
@@ -213,12 +220,14 @@ export const AuthPage: React.FC = () => {
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>
                 <label className="block text-[12px] font-semibold text-zinc-700 mb-1.5">
-                  Email hoặc Số điện thoại
+                  Email hoặc Số điện thoại *
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
+                    required
+                    maxLength={254}
                     value={loginId}
                     onChange={(e) => setLoginId(e.target.value)}
                     placeholder="customer@hcshop.dev hoặc 0987654321"
@@ -230,7 +239,7 @@ export const AuthPage: React.FC = () => {
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-[12px] font-semibold text-zinc-700">
-                    Mật khẩu
+                    Mật khẩu *
                   </label>
                   <button
                     type="button"
@@ -247,6 +256,8 @@ export const AuthPage: React.FC = () => {
                   <Lock className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
+                    required
+                    maxLength={128}
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="Nhập mật khẩu..."
@@ -276,6 +287,7 @@ export const AuthPage: React.FC = () => {
                     <UserIcon className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      maxLength={100}
                       value={regName}
                       onChange={(e) => setRegName(e.target.value)}
                       placeholder="Nguyễn Văn A"
@@ -292,6 +304,7 @@ export const AuthPage: React.FC = () => {
                     <Phone className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
+                      maxLength={10}
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}
                       placeholder="0988123456"
@@ -309,6 +322,7 @@ export const AuthPage: React.FC = () => {
                   <Mail className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
+                    maxLength={254}
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
                     placeholder="name@example.com"
@@ -324,6 +338,7 @@ export const AuthPage: React.FC = () => {
                   </label>
                   <input
                     type="password"
+                    maxLength={128}
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="••••••"
@@ -336,6 +351,7 @@ export const AuthPage: React.FC = () => {
                   </label>
                   <input
                     type="password"
+                    maxLength={128}
                     value={regConfirm}
                     onChange={(e) => setRegConfirm(e.target.value)}
                     placeholder="••••••"
@@ -364,9 +380,11 @@ export const AuthPage: React.FC = () => {
                 <input
                   type="text"
                   required
+                  minLength={2}
+                  maxLength={255}
                   value={regAnswer}
                   onChange={(e) => setRegAnswer(e.target.value)}
-                  placeholder="Nhập câu trả lời bảo mật để dùng khi quên mật khẩu *"
+                  placeholder="Nhập câu trả lời bảo mật (tối thiểu 2 ký tự) *"
                   className="w-full h-9 px-3 rounded-xl bg-white border border-zinc-200 text-[12px] text-zinc-800 focus:outline-none"
                 />
               </div>
@@ -380,7 +398,7 @@ export const AuthPage: React.FC = () => {
             </form>
           )}
 
-          {/* TAB 3: FORGOT PASSWORD VIA SECURITY QUESTION */}
+          {/* TAB 3: FORGOT PASSWORD VIA SECURITY QUESTION (UC-03, CRIT-02) */}
           {mode === 'FORGOT' && (
             <div className="space-y-4">
               {!recoveryUserId ? (
@@ -390,10 +408,12 @@ export const AuthPage: React.FC = () => {
                   </p>
                   <div>
                     <label className="block text-[12px] font-semibold text-zinc-700 mb-1.5">
-                      Email hoặc Số điện thoại cần khôi phục
+                      Email hoặc Số điện thoại cần khôi phục *
                     </label>
                     <input
                       type="text"
+                      required
+                      maxLength={254}
                       value={recoveryIdentifier}
                       onChange={(e) => setRecoveryIdentifier(e.target.value)}
                       placeholder="VD: customer@hcshop.dev"
@@ -416,16 +436,25 @@ export const AuthPage: React.FC = () => {
                     <div className="font-bold">{recoveryQuestion}</div>
                   </div>
 
+                  {recoveryLockedOut && (
+                    <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-[12px] text-amber-800">
+                      Chức năng đặt lại mật khẩu tạm thời bị khóa 15 phút do nhập sai quá 5 lần (UC-03 5a). Vui lòng thử lại sau.
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-[12px] font-semibold text-zinc-700 mb-1">
                       Câu trả lời bảo mật *
                     </label>
                     <input
                       type="text"
+                      required
+                      maxLength={255}
+                      disabled={recoveryLockedOut}
                       value={recoveryAnswer}
                       onChange={(e) => setRecoveryAnswer(e.target.value)}
                       placeholder="Nhập câu trả lời (VD: Phở, HUCE, 68IT6)..."
-                      className="w-full h-10 px-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/80 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900"
+                      className="w-full h-10 px-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/80 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900 disabled:opacity-60"
                     />
                   </div>
 
@@ -436,10 +465,13 @@ export const AuthPage: React.FC = () => {
                       </label>
                       <input
                         type="password"
+                        required
+                        maxLength={128}
+                        disabled={recoveryLockedOut}
                         value={recoveryNewPassword}
                         onChange={(e) => setRecoveryNewPassword(e.target.value)}
                         placeholder="Tối thiểu 6 ký tự"
-                        className="w-full h-10 px-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/80 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900"
+                        className="w-full h-10 px-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/80 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900 disabled:opacity-60"
                       />
                     </div>
                     <div>
@@ -448,10 +480,13 @@ export const AuthPage: React.FC = () => {
                       </label>
                       <input
                         type="password"
+                        required
+                        maxLength={128}
+                        disabled={recoveryLockedOut}
                         value={recoveryConfirmPassword}
                         onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
                         placeholder="Nhập lại mật khẩu mới"
-                        className="w-full h-10 px-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/80 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900"
+                        className="w-full h-10 px-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/80 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900 disabled:opacity-60"
                       />
                     </div>
                   </div>
@@ -459,14 +494,18 @@ export const AuthPage: React.FC = () => {
                   <div className="flex items-center gap-2.5 pt-1">
                     <button
                       type="button"
-                      onClick={() => setRecoveryUserId(null)}
+                      onClick={() => {
+                        setRecoveryUserId(null);
+                        setRecoveryLockedOut(false);
+                      }}
                       className="px-4 h-11 rounded-full border border-zinc-200 text-[13px] font-medium text-zinc-700 hover:bg-zinc-50"
                     >
                       Đổi tài khoản
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 h-11 rounded-full bg-zinc-900 text-white text-[13px] font-semibold hover:bg-zinc-800 transition-colors"
+                      disabled={recoveryLockedOut}
+                      className="flex-1 h-11 rounded-full bg-zinc-900 text-white text-[13px] font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       Xác nhận đặt lại mật khẩu
                     </button>

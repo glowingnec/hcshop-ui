@@ -107,13 +107,19 @@ interface AppContextType {
   logoutUser: () => void;
   lookupUserForRecovery: (
     identifier: string
-  ) => { ok: boolean; user?: User; securityQuestion?: string; message: string };
+  ) => {
+    ok: boolean;
+    user?: User;
+    securityQuestion?: string;
+    isLockedOut?: boolean;
+    message: string;
+  };
   resetPasswordBySecurityAnswer: (params: {
     userId: string;
     answer: string;
     newPassword: string;
     confirmPassword: string;
-  }) => { ok: boolean; message: string };
+  }) => { ok: boolean; isLockedOut?: boolean; message: string };
   changePassword: (params: {
     currentPassword: string;
     newPassword: string;
@@ -137,7 +143,8 @@ interface AppContextType {
     productId: string,
     rating: number,
     comment: string,
-    images?: string[]
+    images?: string[],
+    orderId?: string
   ) => { ok: boolean; message: string };
   deleteReview: (reviewId: string) => { ok: boolean; message: string };
   toggleReviewLike: (reviewId: string) => { ok: boolean; message: string };
@@ -513,9 +520,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: false, discountAmount: 0, message: 'Vui lòng nhập mã giảm giá.' };
     }
 
-    const voucher = vouchers.find((v) => v.code.toUpperCase() === normalized);
+    const voucher = vouchers.find(
+      (v) => !v.isDeleted && v.code.toUpperCase() === normalized
+    );
     // 1. Mã tồn tại & đang bật (2a)
-    if (!voucher || !voucher.isActive) {
+    if (!voucher || !voucher.isActive || voucher.isDeleted) {
       return { ok: false, discountAmount: 0, message: 'Mã giảm giá không hợp lệ hoặc đã ngừng áp dụng.' };
     }
 
@@ -662,6 +671,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }),
       shippingAddress: selectedAddress,
       paymentMethod,
+      voucherId: appliedVoucher?.id,
       voucherCode: appliedVoucher?.code,
       discountAmount,
       subtotal,
@@ -688,6 +698,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         newHistories.push({
           id: `sh-${Date.now()}-${p.id}`,
           productId: p.id,
+          orderId: newOrder.id,
+          orderCode,
           type: 'XuatBan',
           quantityChange: -ordered.quantity,
           stockBefore: p.stock,
@@ -727,12 +739,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  // UC-53 & UC-54: Đánh giá sản phẩm
+  // UC-53 & UC-54: Đánh giá sản phẩm (UQ_DanhGia_DonHang_SanPham: 1 đánh giá / (DonHang, SanPham))
+  const BANNED_REVIEW_PATTERNS = [
+    /\b(lừa đảo|lua dao|đồ rác|do rac|vô học|vo hoc|đm|dm|vcl|cc|cứt|cut)\b/i,
+    /(https?:\/\/|www\.)\S+/i,
+  ];
+
   const submitReview = (
     productId: string,
     rating: number,
     comment: string,
-    images?: string[]
+    images?: string[],
+    orderId?: string
   ) => {
     if (!currentUser) {
       return { ok: false, message: 'Vui lòng đăng nhập để đánh giá sản phẩm.' };
@@ -747,12 +765,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (trimmed.length > 2000) {
       return { ok: false, message: 'Nội dung nhận xét không vượt quá 2000 ký tự.' };
     }
+    // UC-53 4b: Kiểm duyệt từ ngữ cấm / liên kết quảng cáo spam
+    if (BANNED_REVIEW_PATTERNS.some((rx) => rx.test(trimmed))) {
+      return {
+        ok: false,
+        message:
+          'Nội dung đánh giá chứa từ ngữ không phù hợp hoặc đường dẫn spam. Vui lòng chỉnh sửa lại.',
+      };
+    }
 
     const cleanImages = images && images.length > 0 ? images : undefined;
 
-    const existing = reviews.find(
-      (r) => r.productId === productId && r.userId === currentUser.id
+    // Tất cả đơn hàng đã hoàn thành có chứa sản phẩm này của khách hàng
+    const completedOrders = orders.filter(
+      (o) =>
+        o.userId === currentUser.id &&
+        o.status === 'HoanThanh' &&
+        o.items.some((item) => item.productId === productId)
     );
+
+    // Xác định cặp (orderId, productId) đích theo UQ_DanhGia_DonHang_SanPham
+    let targetOrderId = orderId;
+    if (targetOrderId) {
+      const validOrder = completedOrders.find((o) => o.id === targetOrderId);
+      if (!validOrder) {
+        return {
+          ok: false,
+          message:
+            'Chỉ đơn hàng đã hoàn thành có chứa sản phẩm này mới được phép gửi đánh giá.',
+        };
+      }
+    } else {
+      // Nếu không truyền orderId cụ thể: ưu tiên đơn hoàn thành chưa đánh giá; nếu tất cả đã đánh giá thì sửa đơn gần nhất
+      const unreviewedOrder = completedOrders.find(
+        (o) =>
+          !reviews.some(
+            (r) =>
+              r.orderId === o.id &&
+              r.productId === productId &&
+              r.userId === currentUser.id
+          )
+      );
+      targetOrderId = unreviewedOrder?.id || completedOrders[0]?.id;
+    }
+
+    const existing = targetOrderId
+      ? reviews.find(
+          (r) =>
+            r.orderId === targetOrderId &&
+            r.productId === productId &&
+            r.userId === currentUser.id
+        )
+      : reviews.find((r) => r.productId === productId && r.userId === currentUser.id);
 
     if (existing) {
       setReviews((prev) =>
@@ -771,14 +835,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: true, message: 'Đã cập nhật đánh giá của bạn.' };
     }
 
-    const completedOrder = orders.find(
-      (o) =>
-        o.userId === currentUser.id &&
-        o.status === 'HoanThanh' &&
-        o.items.some((item) => item.productId === productId)
-    );
-
-    if (!completedOrder) {
+    if (!targetOrderId) {
       return {
         ok: false,
         message: 'Chỉ khách hàng đã mua và hoàn thành đơn hàng mới có thể đánh giá sản phẩm này.',
@@ -788,7 +845,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newReview: Review = {
       id: `rev-${Date.now()}`,
       productId,
-      orderId: completedOrder.id,
+      orderId: targetOrderId,
       userId: currentUser.id,
       userName: currentUser.fullName,
       userAvatar: currentUser.avatar,
@@ -941,6 +998,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         restoreLogs.push({
           id: `sh-cancel-${Date.now()}-${p.id}`,
           productId: p.id,
+          orderId: order.id,
+          orderCode: order.code,
           type: 'HoanDon',
           quantityChange: item.quantity,
           stockBefore: p.stock,
@@ -993,7 +1052,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  // UC-02: Đăng nhập (hỗ trợ kiểm tra khóa Admin & khóa tạm thời 5 lần sai liên tiếp)
+  // UC-02: Đăng nhập (chống Account Enumeration + khóa tạm thời 5 lần sai liên tiếp)
+  const GENERIC_LOGIN_ERROR = 'Email, số điện thoại hoặc mật khẩu không chính xác.';
+
   const loginUser = (identifier: string, password: string) => {
     const cleanId = identifier.trim().toLowerCase();
     if (!cleanId || !password) {
@@ -1004,8 +1065,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (u) => u.email.toLowerCase() === cleanId || u.phone === identifier.trim()
     );
 
+    // CRIT-01: Thông báo chung nhất quán để chống dò tài khoản (Account Enumeration)
     if (!user) {
-      return { ok: false, message: 'Tài khoản hoặc mật khẩu không chính xác.' };
+      return { ok: false, message: GENERIC_LOGIN_ERROR };
     }
 
     // Kiểm tra khóa bởi Admin (UC-02 3b / UC-10)
@@ -1060,11 +1122,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
 
+      // Không tiết lộ tài khoản tồn tại hay số lần sai khi chưa chạm ngưỡng khóa
       return {
         ok: false,
-        message: `Mật khẩu không chính xác (${nextAttempts}/5 lần thử). Còn ${
-          5 - nextAttempts
-        } lần trước khi tạm khóa.`,
+        message: GENERIC_LOGIN_ERROR,
       };
     }
 
@@ -1146,6 +1207,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         message: 'Vui lòng chọn câu hỏi bảo mật và nhập câu trả lời bảo mật.',
       };
     }
+    if (securityAnswer.length < 2) {
+      return {
+        ok: false,
+        message: 'Câu trả lời bảo mật phải có tối thiểu 2 ký tự.',
+      };
+    }
 
     const nextIndex = users.filter((u) => u.role === 'KhachHang').length + 1;
     const newUser: User = {
@@ -1177,7 +1244,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
   };
 
-  // UC-03: Quên mật khẩu qua Câu hỏi bảo mật
+  // UC-03: Quên mật khẩu qua Câu hỏi bảo mật (CRIT-02: khóa tạm 15 phút sau 5 lần trả lời sai)
   const lookupUserForRecovery = (identifier: string) => {
     const clean = identifier.trim().toLowerCase();
     if (!clean) {
@@ -1197,6 +1264,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ok: false,
         message: 'Tài khoản này đã bị khóa, không thể khôi phục mật khẩu.',
       };
+    }
+    if (user.recoveryLockoutUntil) {
+      const unlockTime = new Date(user.recoveryLockoutUntil);
+      if (unlockTime > new Date()) {
+        const minutesLeft = Math.max(
+          1,
+          Math.ceil((unlockTime.getTime() - Date.now()) / 60000)
+        );
+        return {
+          ok: false,
+          isLockedOut: true,
+          message: `Tính năng khôi phục mật khẩu đang bị tạm khóa do nhập sai câu trả lời bảo mật 5 lần liên tiếp. Vui lòng thử lại sau ${minutesLeft} phút.`,
+        };
+      }
     }
     if (!user.securityQuestion || !user.securityAnswerHash) {
       return {
@@ -1223,13 +1304,63 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!user || !user.securityAnswerHash) {
       return { ok: false, message: 'Yêu cầu khôi phục không hợp lệ.' };
     }
+
+    // Kiểm tra khóa tạm thời khôi phục mật khẩu (UC-03 5a)
+    if (user.recoveryLockoutUntil) {
+      const unlockTime = new Date(user.recoveryLockoutUntil);
+      if (unlockTime > new Date()) {
+        const minutesLeft = Math.max(
+          1,
+          Math.ceil((unlockTime.getTime() - Date.now()) / 60000)
+        );
+        return {
+          ok: false,
+          isLockedOut: true,
+          message: `Bạn đã trả lời sai quá 5 lần. Chức năng khôi phục tạm khóa thêm ${minutesLeft} phút.`,
+        };
+      }
+    }
+
     if (
       params.answer.trim().toLowerCase() !==
       user.securityAnswerHash.trim().toLowerCase()
     ) {
+      const currentAttempts =
+        user.recoveryLockoutUntil && new Date(user.recoveryLockoutUntil) <= new Date()
+          ? 0
+          : user.failedRecoveryAttempts || 0;
+      const nextAttempts = currentAttempts + 1;
+      const shouldLockout = nextAttempts >= 5;
+      const lockoutIso = shouldLockout
+        ? new Date(Date.now() + 15 * 60 * 1000).toISOString()
+        : undefined;
+
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === user.id
+            ? {
+                ...u,
+                failedRecoveryAttempts: nextAttempts,
+                recoveryLockoutUntil: lockoutIso,
+              }
+            : u
+        )
+      );
+
+      if (shouldLockout) {
+        return {
+          ok: false,
+          isLockedOut: true,
+          message:
+            'Trả lời sai câu hỏi bảo mật 5 lần liên tiếp. Chức năng khôi phục mật khẩu tạm khóa 15 phút để bảo vệ tài khoản.',
+        };
+      }
+
       return {
         ok: false,
-        message: 'Câu trả lời bảo mật không chính xác.',
+        message: `Câu trả lời bảo mật không chính xác (${nextAttempts}/5 lần thử). Còn ${
+          5 - nextAttempts
+        } lần trước khi tạm khóa khôi phục.`,
       };
     }
     if (params.newPassword.length < 6) {
@@ -1244,6 +1375,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       passwordHash: params.newPassword,
       failedLoginAttempts: 0,
       lockoutUntil: undefined,
+      failedRecoveryAttempts: 0,
+      recoveryLockoutUntil: undefined,
     };
 
     setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)));
@@ -1298,6 +1431,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!params.securityQuestion.trim() || !params.securityAnswer.trim()) {
       return { ok: false, message: 'Vui lòng nhập đầy đủ câu hỏi và câu trả lời bảo mật.' };
     }
+    if (params.securityAnswer.trim().length < 2) {
+      return { ok: false, message: 'Câu trả lời bảo mật phải có tối thiểu 2 ký tự.' };
+    }
 
     const updated: User = {
       ...currentUser,
@@ -1351,8 +1487,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     action: 'CONFIRM' | 'REJECT',
     reasonOrNote?: string
   ) => {
-    if (!currentUser || (currentUser.role !== 'NhanVien' && currentUser.role !== 'QuanLy')) {
-      return { ok: false, message: 'Bạn không có quyền xử lý đơn hàng.' };
+    if (!currentUser || currentUser.role !== 'NhanVien') {
+      return {
+        ok: false,
+        message: 'Chỉ Nhân viên mới có quyền xác nhận hoặc từ chối đơn hàng.',
+      };
     }
     const order = orders.find((o) => o.id === orderId);
     if (!order) return { ok: false, message: 'Không tìm thấy đơn hàng.' };
@@ -1408,6 +1547,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         restoreLogs.push({
           id: `sh-reject-${Date.now()}-${p.id}`,
           productId: p.id,
+          orderId: order.id,
+          orderCode: order.code,
           type: 'HoanDon',
           quantityChange: item.quantity,
           stockBefore: p.stock,
@@ -1455,14 +1596,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { ok: true, message: `Đã hủy đơn #${order.code} và hoàn trả tồn kho.` };
   };
 
-  // Staff / Admin: Cập nhật trạng thái đơn hàng tuần tự (DaXacNhan -> DangChuanBi -> DangGiao -> HoanThanh)
+  // Staff only (CRIT-03): Cập nhật trạng thái đơn hàng tuần tự (DaXacNhan -> DangChuanBi -> DangGiao -> HoanThanh)
   const staffAdvanceOrderStatus = (
     orderId: string,
     nextStatus: OrderStatus,
     note?: string
   ) => {
-    if (!currentUser || (currentUser.role !== 'NhanVien' && currentUser.role !== 'QuanLy')) {
-      return { ok: false, message: 'Bạn không có quyền cập nhật trạng thái đơn hàng.' };
+    if (!currentUser || currentUser.role !== 'NhanVien') {
+      return {
+        ok: false,
+        message: 'Chỉ Nhân viên mới có quyền cập nhật trạng thái đơn hàng.',
+      };
     }
     const order = orders.find((o) => o.id === orderId);
     if (!order) return { ok: false, message: 'Không tìm thấy đơn hàng.' };
@@ -1628,8 +1772,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }) => {
     const code = input.code.trim().toUpperCase();
     const name = input.name.trim();
+    const description = input.description.trim();
     if (!code || !name || !input.categoryId) {
       return { ok: false, message: 'Vui lòng điền mã SKU, tên sản phẩm và chọn danh mục.' };
+    }
+    if (!description) {
+      return { ok: false, message: 'Vui lòng nhập mô tả sản phẩm.' };
     }
     if (input.price <= 0) {
       return { ok: false, message: 'Giá bán sản phẩm phải lớn hơn 0.' };
@@ -1637,10 +1785,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (products.some((p) => !p.isDeleted && p.code.toUpperCase() === code)) {
       return { ok: false, message: 'Mã SKU này đã tồn tại trên hệ thống.' };
     }
+    // UC-20 4b: Không cho phép trùng tên sản phẩm trong cùng danh mục
+    if (
+      products.some(
+        (p) =>
+          !p.isDeleted &&
+          p.categoryId === input.categoryId &&
+          p.name.trim().toLowerCase() === name.toLowerCase()
+      )
+    ) {
+      return {
+        ok: false,
+        message: 'Tên sản phẩm này đã tồn tại trong cùng danh mục. Vui lòng dùng tên khác.',
+      };
+    }
 
     const num = String(products.length + 1).padStart(2, '0');
     const nowIso = new Date().toISOString();
     const initialStock = Math.max(0, Math.floor(input.initialStock || 0));
+    const parsedThreshold = Number.isFinite(input.minStockThreshold)
+      ? Math.max(0, Math.floor(input.minStockThreshold))
+      : 0;
 
     const newProduct: Product = {
       id: `prd-${Date.now()}`,
@@ -1648,10 +1813,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name,
       categoryId: input.categoryId,
       price: input.price,
-      description: input.description.trim() || `Mô tả sản phẩm ${name}`,
+      description,
       imageUrl: input.imageUrl?.trim() || createPlaceholderImage(num),
       stock: initialStock,
-      minStockThreshold: Math.max(0, Math.floor(input.minStockThreshold || 5)),
+      minStockThreshold: parsedThreshold,
       isVisible: input.isVisible !== undefined ? input.isVisible : true,
       isDeleted: false,
       createdAt: nowIso,
@@ -1690,11 +1855,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   ) => {
     const name = input.name.trim();
+    const description = input.description.trim();
     if (!name || !input.categoryId) {
       return { ok: false, message: 'Tên sản phẩm và danh mục không được để trống.' };
     }
+    if (!description) {
+      return { ok: false, message: 'Vui lòng nhập mô tả sản phẩm.' };
+    }
     if (input.price <= 0) {
       return { ok: false, message: 'Giá bán phải lớn hơn 0.' };
+    }
+    if (
+      products.some(
+        (p) =>
+          p.id !== id &&
+          !p.isDeleted &&
+          p.categoryId === input.categoryId &&
+          p.name.trim().toLowerCase() === name.toLowerCase()
+      )
+    ) {
+      return {
+        ok: false,
+        message: 'Tên sản phẩm này đã tồn tại trong cùng danh mục.',
+      };
     }
 
     setProducts((prev) =>
@@ -1705,7 +1888,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               name,
               categoryId: input.categoryId,
               price: input.price,
-              description: input.description.trim(),
+              description,
               imageUrl: input.imageUrl ? input.imageUrl : p.imageUrl,
             }
           : p
@@ -1882,13 +2065,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!code) {
       return { ok: false, message: 'Vui lòng nhập mã giảm giá.' };
     }
-    if (!/^[A-Z0-9_-]{3,20}$/.test(code)) {
+    if (!/^[A-Z0-9_-]{3,50}$/.test(code)) {
       return {
         ok: false,
-        message: 'Mã giảm giá chỉ gồm chữ in hoa, chữ số (3–20 ký tự, không dấu cách).',
+        message: 'Mã giảm giá chỉ gồm chữ in hoa, chữ số, gạch ngang/dưới (3–50 ký tự, không dấu cách).',
       };
     }
-    if (vouchers.some((v) => v.code.toUpperCase() === code)) {
+    if (vouchers.some((v) => !v.isDeleted && v.code.toUpperCase() === code)) {
       return { ok: false, message: 'Mã giảm giá này đã tồn tại trên hệ thống.' };
     }
     if (input.discountValue <= 0) {
@@ -1922,6 +2105,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       usageLimit: Math.floor(input.usageLimit),
       usedCount: 0,
       isActive: input.isActive !== undefined ? input.isActive : true,
+      isDeleted: false,
       createdAt: new Date().toISOString(),
     };
 
@@ -2031,7 +2215,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    setVouchers((prev) => prev.filter((v) => v.id !== id));
+    setVouchers((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, isDeleted: true, isActive: false } : v))
+    );
     return { ok: true, message: `Đã xóa mã giảm giá "${target.code}".` };
   };
 
@@ -2107,7 +2293,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         {
           id: `alh-${Date.now()}`,
           userId,
-          action: 'LOCK',
+          newStatus: 'BiKhoa',
           reason,
           actorName: currentUser.fullName,
           createdAt: nowIso,
@@ -2133,7 +2319,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         {
           id: `alh-${Date.now()}`,
           userId,
-          action: 'UNLOCK',
+          newStatus: 'HoatDong',
           reason: lockReason?.trim() || 'Quản lý mở khóa tài khoản',
           actorName: currentUser.fullName,
           createdAt: nowIso,

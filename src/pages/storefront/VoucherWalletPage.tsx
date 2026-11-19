@@ -24,7 +24,6 @@ export const VoucherWalletPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterTab, setFilterTab] = useState<'AVAILABLE' | 'ALL'>('AVAILABLE');
   const [currentPage, setCurrentPage] = useState(1);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
@@ -47,7 +46,7 @@ export const VoucherWalletPage: React.FC = () => {
     const end = new Date(v.endDate);
     const remaining = Math.max(0, v.usageLimit - v.usedCount);
 
-    if (!v.isActive) {
+    if (v.isDeleted || !v.isActive) {
       return { status: 'INACTIVE', label: 'Ngừng áp dụng', canUse: false, remaining };
     }
     if (now < start) {
@@ -62,10 +61,11 @@ export const VoucherWalletPage: React.FC = () => {
     return { status: 'ACTIVE', label: 'Đang có hiệu lực', canUse: true, remaining };
   };
 
+  // UC-45 (MAJ-07): Khách hàng chỉ xem được các mã giảm giá khả dụng (đang bật, còn hạn, còn lượt, chưa xóa)
   const filteredVouchers = useMemo(() => {
     return vouchers.filter((v) => {
       const state = getVoucherState(v);
-      if (filterTab === 'AVAILABLE' && !state.canUse) {
+      if (!state.canUse) {
         return false;
       }
       if (searchQuery.trim()) {
@@ -77,7 +77,7 @@ export const VoucherWalletPage: React.FC = () => {
       }
       return true;
     });
-  }, [vouchers, filterTab, searchQuery]);
+  }, [vouchers, searchQuery]);
 
   const paginatedVouchers = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -113,7 +113,7 @@ export const VoucherWalletPage: React.FC = () => {
             Kho mã giảm giá
           </h1>
           <p className="text-[13px] text-zinc-500 mt-0.5">
-            Tra cứu và áp dụng ưu đãi dành riêng cho đơn hàng của bạn
+            Tra cứu và áp dụng các ưu đãi đang có hiệu lực cho đơn hàng của bạn
           </p>
         </div>
 
@@ -136,12 +136,13 @@ export const VoucherWalletPage: React.FC = () => {
         )}
       </div>
 
-      {/* Search & Filter Controls (UC-46) */}
+      {/* Search Control (UC-46) */}
       <div className="bg-white rounded-3xl border border-zinc-200/70 p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
+            maxLength={50}
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -164,36 +165,9 @@ export const VoucherWalletPage: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full self-start sm:self-auto">
-          <button
-            type="button"
-            onClick={() => {
-              setFilterTab('AVAILABLE');
-              setCurrentPage(1);
-            }}
-            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
-              filterTab === 'AVAILABLE'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-900'
-            }`}
-          >
-            Đang dùng được
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setFilterTab('ALL');
-              setCurrentPage(1);
-            }}
-            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
-              filterTab === 'ALL'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-900'
-            }`}
-          >
-            Tất cả mã ({vouchers.length})
-          </button>
-        </div>
+        <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[12px] font-medium self-start sm:self-auto">
+          Đang khả dụng ({filteredVouchers.length})
+        </span>
       </div>
 
       {/* Voucher Grid (UC-45) */}
@@ -206,7 +180,7 @@ export const VoucherWalletPage: React.FC = () => {
             Không tìm thấy mã giảm giá phù hợp
           </h2>
           <p className="text-[13px] text-zinc-500 mt-1">
-            Thử đổi từ khóa tìm kiếm hoặc chuyển sang tab &ldquo;Tất cả mã&rdquo; để xem các mã đã hết hạn.
+            Thử đổi từ khóa tìm kiếm hoặc quay lại sau để săn ưu đãi mới từ HCShop.
           </p>
         </div>
       ) : (
