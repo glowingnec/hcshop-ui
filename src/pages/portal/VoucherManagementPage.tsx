@@ -29,12 +29,15 @@ export const VoucherManagementPage: React.FC = () => {
     orders,
     createVoucher,
     updateVoucher,
+    // MAJ-04: Không có PATCH /an-hien riêng — khi nối API thật, bật/tắt voucher gọi PUT /api/ma-giam-gia/{id} cập nhật hienThi
     toggleVoucherActive,
     deleteVoucher,
   } = useApp();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'AVAILABLE' | 'EXHAUSTED' | 'INACTIVE'
+  >('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [detailVoucher, setDetailVoucher] = useState<Voucher | null>(null);
@@ -64,9 +67,19 @@ export const VoucherManagementPage: React.FC = () => {
     [vouchers]
   );
 
+  // MIN-04: Phân tách rõ mã hết lượt / hết hạn khỏi nhóm đang khả dụng
+  const isVoucherExhaustedOrExpired = (v: Voucher) =>
+    v.usedCount >= v.usageLimit || new Date(v.endDate).getTime() < Date.now();
+
   const filteredVouchers = useMemo(() => {
     return visibleVouchers.filter((v) => {
-      if (statusFilter === 'ACTIVE' && !v.isActive) return false;
+      const exhaustedOrExpired = isVoucherExhaustedOrExpired(v);
+      if (statusFilter === 'AVAILABLE' && (!v.isActive || exhaustedOrExpired)) {
+        return false;
+      }
+      if (statusFilter === 'EXHAUSTED' && (!v.isActive || !exhaustedOrExpired)) {
+        return false;
+      }
       if (statusFilter === 'INACTIVE' && v.isActive) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -199,17 +212,31 @@ export const VoucherManagementPage: React.FC = () => {
 
       {/* Search & Filter */}
       <div className="bg-white rounded-2xl border border-zinc-200/80 p-3.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
+        <div className="flex flex-wrap items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
           {(
             [
               { id: 'ALL', label: `Tất cả (${visibleVouchers.length})` },
               {
-                id: 'ACTIVE',
-                label: `Đang bật (${visibleVouchers.filter((v) => v.isActive).length})`,
+                id: 'AVAILABLE',
+                label: `Đang khả dụng (${
+                  visibleVouchers.filter(
+                    (v) => v.isActive && !isVoucherExhaustedOrExpired(v)
+                  ).length
+                })`,
+              },
+              {
+                id: 'EXHAUSTED',
+                label: `Hết lượt / Hết hạn (${
+                  visibleVouchers.filter(
+                    (v) => v.isActive && isVoucherExhaustedOrExpired(v)
+                  ).length
+                })`,
               },
               {
                 id: 'INACTIVE',
-                label: `Ngừng áp dụng (${visibleVouchers.filter((v) => !v.isActive).length})`,
+                label: `Ngừng áp dụng (${
+                  visibleVouchers.filter((v) => !v.isActive).length
+                })`,
               },
             ] as const
           ).map((tab) => (
@@ -220,7 +247,7 @@ export const VoucherManagementPage: React.FC = () => {
                 setStatusFilter(tab.id);
                 setCurrentPage(1);
               }}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
                 statusFilter === tab.id
                   ? 'bg-white text-zinc-900 shadow-sm'
                   : 'text-zinc-500 hover:text-zinc-900'

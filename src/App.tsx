@@ -1,5 +1,5 @@
-import React, { Suspense, lazy } from 'react';
-import { HashRouter, Route, Routes } from 'react-router-dom';
+import React, { Suspense, lazy, useEffect } from 'react';
+import { HashRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { StorefrontLayout } from './components/layout/StorefrontLayout';
 import { CatalogPage } from './pages/storefront/CatalogPage';
@@ -12,6 +12,14 @@ import { AuthPage } from './pages/storefront/AuthPage';
 import { CustomerAccountPage } from './pages/storefront/CustomerAccountPage';
 import { CustomerOrdersPage } from './pages/storefront/CustomerOrdersPage';
 import { LoadingSpinner } from './components/common/StateFeedback';
+
+const ScrollToTop: React.FC = () => {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+};
 
 const PortalLayout = lazy(() =>
   import('./components/layout/PortalLayout').then((m) => ({ default: m.PortalLayout }))
@@ -55,6 +63,7 @@ const AccountManagementPage = lazy(() =>
 export const App: React.FC = () => {
   return (
     <HashRouter>
+      <ScrollToTop />
       <AppProvider>
         <div className="min-h-screen flex flex-col bg-[#f8f9fa] text-zinc-900">
           <Suspense fallback={<LoadingSpinner message="Đang tải trang..." />}>
