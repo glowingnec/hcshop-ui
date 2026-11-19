@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  AlertCircle,
   ArrowDownToLine,
   FileText,
   PanelLeft,
   Printer,
   RefreshCw,
   Send,
+  TrendingDown,
+  TrendingUp,
   X,
 } from 'lucide-react';
 import {
@@ -26,67 +29,56 @@ import {
   ORDER_STATUS_META,
 } from '../../utils/formatters';
 
-type PeriodKey = '1D' | '1W' | '1M' | '3M' | '1Y';
+type GranularityKey = 'Ngay' | 'Tuan' | 'Thang' | 'Nam';
 
-const PERIOD_SERIES: Record<
-  PeriodKey,
-  { growth: string; data: { label: string; value: number }[] }
+const GRANULARITY_SERIES: Record<
+  GranularityKey,
+  { label: string; growth: string; data: { label: string; value: number }[] }
 > = {
-  '1D': {
-    growth: '+3.42%',
-    data: [
-      { label: '08:00', value: 1200000 },
-      { label: '10:00', value: 2100000 },
-      { label: '12:00', value: 1850000 },
-      { label: '15:00', value: 3400000 },
-      { label: '18:00', value: 4200000 },
-      { label: '21:00', value: 5100000 },
-    ],
-  },
-  '1W': {
+  Ngay: {
+    label: 'Ngày',
     growth: '+5.84%',
     data: [
-      { label: 'T2', value: 3200000 },
-      { label: 'T3', value: 4100000 },
-      { label: 'T4', value: 3800000 },
-      { label: 'T5', value: 5200000 },
-      { label: 'T6', value: 4900000 },
-      { label: 'T7', value: 6400000 },
-      { label: 'CN', value: 6950000 },
+      { label: '04/11', value: 3200000 },
+      { label: '05/11', value: 4100000 },
+      { label: '06/11', value: 3800000 },
+      { label: '07/11', value: 5200000 },
+      { label: '08/11', value: 4900000 },
+      { label: '09/11', value: 6400000 },
+      { label: '10/11', value: 6950000 },
     ],
   },
-  '1M': {
+  Tuan: {
+    label: 'Tuần',
     growth: '+8.16%',
     data: [
-      { label: 'Day 3', value: 4200000 },
-      { label: 'Day 6', value: 3800000 },
-      { label: 'Day 9', value: 4600000 },
-      { label: 'Day 12', value: 4100000 },
-      { label: 'Day 15', value: 5800000 },
-      { label: 'Day 18', value: 5100000 },
-      { label: 'Day 21', value: 6400000 },
-      { label: 'Day 24', value: 5900000 },
-      { label: 'Day 28', value: 6950000 },
+      { label: 'Tuần 1', value: 12400000 },
+      { label: 'Tuần 2', value: 14800000 },
+      { label: 'Tuần 3', value: 13900000 },
+      { label: 'Tuần 4', value: 18200000 },
+      { label: 'Tuần 5', value: 21400000 },
     ],
   },
-  '3M': {
+  Thang: {
+    label: 'Tháng',
     growth: '+14.20%',
     data: [
-      { label: 'T9/W1', value: 12500000 },
-      { label: 'T9/W3', value: 14800000 },
-      { label: 'T10/W1', value: 13900000 },
-      { label: 'T10/W3', value: 18200000 },
-      { label: 'T11/W1', value: 21400000 },
-      { label: 'T11/W2', value: 24600000 },
+      { label: 'T6', value: 34500000 },
+      { label: 'T7', value: 39200000 },
+      { label: 'T8', value: 36800000 },
+      { label: 'T9', value: 45100000 },
+      { label: 'T10', value: 52400000 },
+      { label: 'T11', value: 58900000 },
     ],
   },
-  '1Y': {
+  Nam: {
+    label: 'Năm',
     growth: '+26.50%',
     data: [
-      { label: 'Q1', value: 42000000 },
-      { label: 'Q2', value: 54000000 },
-      { label: 'Q3', value: 61000000 },
-      { label: 'Q4', value: 78500000 },
+      { label: '2023', value: 312000000 },
+      { label: '2024', value: 428000000 },
+      { label: '2025', value: 515000000 },
+      { label: '2026', value: 642000000 },
     ],
   },
 };
@@ -100,14 +92,42 @@ const ALL_STATUSES: OrderStatus[] = [
   'DaHuy',
 ];
 
+function computeDefault30DayRange(orders: { createdAt: string }[]): {
+  start: string;
+  end: string;
+} {
+  const nowMs = Date.now();
+  const twentyNineDaysMs = 29 * 24 * 60 * 60 * 1000;
+  const hasOrderInRecent30Days = orders.some((o) => {
+    const t = new Date(o.createdAt).getTime();
+    return Number.isFinite(t) && t >= nowMs - twentyNineDaysMs && t <= nowMs;
+  });
+
+  let anchorMs = nowMs;
+  if (!hasOrderInRecent30Days && orders.length > 0) {
+    const latestMs = orders.reduce((max, o) => {
+      const t = new Date(o.createdAt).getTime();
+      return Number.isFinite(t) && t > max ? t : max;
+    }, 0);
+    if (latestMs > 0) anchorMs = latestMs;
+  }
+
+  return {
+    start: new Date(anchorMs - twentyNineDaysMs).toISOString().slice(0, 10),
+    end: new Date(anchorMs).toISOString().slice(0, 10),
+  };
+}
+
 export const ReportsAndAnalyticsPage: React.FC = () => {
   const { currentUser, users, categories, orders, products, stockHistories } = useApp();
   const navigate = useNavigate();
 
-  const [period, setPeriod] = useState<PeriodKey>('1M');
-  const [reportStartDate, setReportStartDate] = useState('');
-  const [reportEndDate, setReportEndDate] = useState('');
+  const initial30Days = useMemo(() => computeDefault30DayRange(orders), []);
+  const [granularity, setGranularity] = useState<GranularityKey>('Ngay');
+  const [reportStartDate, setReportStartDate] = useState(initial30Days.start);
+  const [reportEndDate, setReportEndDate] = useState(initial30Days.end);
   const [bestSellerCategoryId, setBestSellerCategoryId] = useState('ALL');
+  const [topN, setTopN] = useState<5 | 10 | 20>(5);
   const [deadStockCategoryId, setDeadStockCategoryId] = useState('ALL');
   const [rightPanelMode, setRightPanelMode] = useState<'BEST_SELLERS' | 'STOCK'>('BEST_SELLERS');
   const [deadStockDays, setDeadStockDays] = useState<30 | 60 | 90>(30);
@@ -123,8 +143,17 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
     [products]
   );
 
+  // UC-58: SoSanPhamSapHetHang (stock > 0 && stock <= minStockThreshold)
+  const lowStockCount = useMemo(
+    () =>
+      activeProducts.filter(
+        (p) => p.stock > 0 && p.stock <= p.minStockThreshold
+      ).length,
+    [activeProducts]
+  );
+
   const ordersInRange = useMemo(() => {
-    if (dateRangeError) return orders;
+    if (dateRangeError) return [];
     return orders.filter((o) => {
       const day = o.createdAt.slice(0, 10);
       if (reportStartDate && day < reportStartDate) return false;
@@ -135,7 +164,8 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
 
   const newCustomersCount = useMemo(() => {
     const customers = users.filter((u) => u.role === 'KhachHang');
-    if (dateRangeError || (!reportStartDate && !reportEndDate)) {
+    if (dateRangeError) return 0;
+    if (!reportStartDate && !reportEndDate) {
       return customers.length;
     }
     return customers.filter((u) => {
@@ -164,7 +194,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
     }));
   }, [ordersInRange]);
 
-  // Best-selling products calculation (UC-60, ISS-11)
+  // Best-selling products calculation (UC-60)
   const bestSellers = useMemo(() => {
     const map = new Map<
       string,
@@ -208,7 +238,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
     return Array.from(map.values()).sort((a, b) => b.soldQty - a.soldQty);
   }, [activeProducts, ordersInRange, bestSellerCategoryId]);
 
-  // Slow-moving / Dead-stock products calculation (UC-61, ISS-11)
+  // Slow-moving / Dead-stock products calculation (UC-61: strictly daysUnsold >= deadStockDays)
   const deadStockItems = useMemo(() => {
     const refNow = new Date('2026-11-10T12:00:00Z').getTime();
     return activeProducts
@@ -226,12 +256,37 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
           tiedCapital: p.stock * p.price,
         };
       })
-      .filter((p) => p.daysUnsold >= deadStockDays || p.stock >= 18)
+      .filter((p) => p.daysUnsold >= deadStockDays)
       .sort((a, b) => b.daysUnsold - a.daysUnsold);
   }, [activeProducts, deadStockDays, deadStockCategoryId]);
 
   const topSeller = bestSellers[0];
-  const currentSeries = PERIOD_SERIES[period];
+  const currentSeries = GRANULARITY_SERIES[granularity];
+
+  // UC-59: Peak (Max) and Lowest (Min) revenue period callouts
+  const { maxRevenuePoint, minRevenuePoint } = useMemo(() => {
+    const pts = currentSeries.data;
+    if (pts.length === 0) {
+      return { maxRevenuePoint: null, minRevenuePoint: null };
+    }
+    let maxPt = pts[0];
+    let minPt = pts[0];
+    for (const pt of pts) {
+      if (pt.value > maxPt.value) maxPt = pt;
+      if (pt.value < minPt.value) minPt = pt;
+    }
+    return { maxRevenuePoint: maxPt, minRevenuePoint: minPt };
+  }, [currentSeries]);
+
+  // UC-62 1a: Block PDF print when selected range has no report data
+  const hasNoReportData =
+    Boolean(dateRangeError) ||
+    (ordersInRange.length === 0 && deadStockItems.length === 0);
+
+  const reportPeriodLabel =
+    reportStartDate || reportEndDate
+      ? `${reportStartDate || '...'} → ${reportEndDate || '...'}`
+      : 'Toàn bộ thời gian';
 
   return (
     <div className="space-y-6 pb-12">
@@ -280,11 +335,11 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Custom Date Range Filter & 6-Status Order Breakdown (UC-59, ISS-11) */}
+      {/* Custom Date Range Filter (default 30 days per UC-58) & 6-Status Order Breakdown */}
       <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-semibold text-zinc-700">Kỳ báo cáo tùy chọn:</span>
+            <span className="font-semibold text-zinc-700">Kỳ báo cáo:</span>
             <input
               type="date"
               value={reportStartDate}
@@ -300,6 +355,17 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
               aria-label="Đến ngày"
               className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
             />
+            <button
+              type="button"
+              onClick={() => {
+                const range = computeDefault30DayRange(orders);
+                setReportStartDate(range.start);
+                setReportEndDate(range.end);
+              }}
+              className="h-8 px-3 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium"
+            >
+              30 ngày gần nhất
+            </button>
             {(reportStartDate || reportEndDate) && (
               <button
                 type="button"
@@ -333,106 +399,141 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 5 Minimal KPI Cards (incl. TongKhachHangMoi) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
+      {/* 6 KPI Cards (UC-58 incl. TongKhachHangMoi & SoSanPhamSapHetHang) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
           <span className="text-xs text-zinc-500">Tổng doanh thu</span>
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-xl font-semibold text-zinc-900">
+            <span className="text-lg font-semibold text-zinc-900 truncate">
               {formatVND(totalRevenue)}
             </span>
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 shrink-0">
               Hoàn thành
             </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
           <span className="text-xs text-zinc-500">Tổng đơn hàng</span>
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-2xl font-semibold text-zinc-900">
               {ordersInRange.length}
             </span>
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 shrink-0">
               {completedOrders.length} hoàn thành
             </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
           <span className="text-xs text-zinc-500">Khách hàng mới</span>
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-2xl font-semibold text-zinc-900">
               {newCustomersCount}
             </span>
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 shrink-0">
               Tài khoản KH
             </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500">
-            Bán chạy nhất · {topSeller?.code || 'N/A'}
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
+          <span className="text-xs text-zinc-500">Sắp hết hàng</span>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-2xl font-semibold text-amber-600">
+              {lowStockCount}
+            </span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">
+              Cảnh báo tồn
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
+          <span className="text-xs text-zinc-500 truncate">
+            Bán chạy · {topSeller?.code || 'N/A'}
           </span>
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-2xl font-semibold text-zinc-900">
               {topSeller?.soldQty || 0}
             </span>
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 shrink-0">
               Đã bán
             </span>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
           <span className="text-xs text-zinc-500">Danh mục hàng hóa</span>
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-2xl font-semibold text-zinc-900">
               {activeProducts.length}
             </span>
-            <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-zinc-100 text-zinc-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 shrink-0">
               Mặt hàng
             </span>
           </div>
         </div>
       </div>
 
-      {/* Middle Section: Revenue Chart + Right Ranking List */}
+      {/* Middle Section: Revenue Chart (UC-59) + Right Ranking List (UC-60) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left 7 Cols: Minimal Line Chart Card */}
+        {/* Left 7 Cols: Revenue Chart Card with Ngày/Tuần/Tháng/Năm & Max/Min callouts */}
         <div className="lg:col-span-7 bg-white rounded-2xl border border-zinc-200/70 p-6 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-semibold text-zinc-900">
               Biểu đồ doanh thu
             </span>
-            <div className="flex items-center gap-1.5 text-xs">
-              {(['1D', '1W', '1M', '3M', '1Y'] as PeriodKey[]).map((item) => (
+            <div className="flex items-center gap-1 bg-zinc-100 p-0.5 rounded-full text-xs">
+              {(['Ngay', 'Tuan', 'Thang', 'Nam'] as GranularityKey[]).map((key) => (
                 <button
-                  key={item}
+                  key={key}
                   type="button"
-                  onClick={() => setPeriod(item)}
-                  className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
-                    period === item
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-zinc-400 hover:text-zinc-700'
+                  onClick={() => setGranularity(key)}
+                  className={`px-2.5 py-1 rounded-full font-medium transition-colors ${
+                    granularity === key
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-zinc-500 hover:text-zinc-800'
                   }`}
                 >
-                  {item}
+                  {GRANULARITY_SERIES[key].label}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="space-y-1">
-            <p className="text-xs text-zinc-400">Doanh thu lũy kế</p>
-            <p className="text-2xl font-semibold text-zinc-900">
-              {formatVND(totalRevenue)}
-            </p>
-            <p className="text-xs text-emerald-600 font-medium">
-              ↑ {currentSeries.growth}{' '}
-              <span className="text-zinc-400 ml-1">kỳ {period}</span>
-            </p>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-xs text-zinc-400">Doanh thu lũy kế kỳ chọn</p>
+              <p className="text-2xl font-semibold text-zinc-900">
+                {formatVND(totalRevenue)}
+              </p>
+              <p className="text-xs text-emerald-600 font-medium">
+                ↑ {currentSeries.growth}{' '}
+                <span className="text-zinc-400 ml-1">
+                  theo {currentSeries.label.toLowerCase()}
+                </span>
+              </p>
+            </div>
+
+            {maxRevenuePoint && minRevenuePoint && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <div className="px-3 py-1.5 rounded-xl bg-emerald-50/80 border border-emerald-200/60 text-emerald-800 flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    Cao nhất: <strong>{formatVND(maxRevenuePoint.value)}</strong> (
+                    {maxRevenuePoint.label})
+                  </span>
+                </div>
+                <div className="px-3 py-1.5 rounded-xl bg-amber-50/80 border border-amber-200/60 text-amber-800 flex items-center gap-1.5">
+                  <TrendingDown className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>
+                    Thấp nhất: <strong>{formatVND(minRevenuePoint.value)}</strong> (
+                    {minRevenuePoint.label})
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="h-56 w-full pt-2">
@@ -449,7 +550,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                   tickLine={false}
                   tick={{ fontSize: 11, fill: '#a1a1aa' }}
                   tickFormatter={(v) => `${Math.round(v / 1000000)}M`}
-                  width={38}
+                  width={42}
                 />
                 <Tooltip
                   formatter={(val: number) => [formatVND(val), 'Doanh thu']}
@@ -464,14 +565,14 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                   dataKey="value"
                   stroke="#0284c7"
                   strokeWidth={2}
-                  dot={false}
+                  dot={{ r: 3, fill: '#0284c7' }}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Right 5 Cols: Best Sellers / Stock Holdings */}
+        {/* Right 5 Cols: Best Sellers (Top 5/10/20 + Rank) / Stock Holdings */}
         <div className="lg:col-span-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-2">
@@ -482,27 +583,40 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
               </h3>
               <span className="text-xs text-zinc-400">
                 {rightPanelMode === 'BEST_SELLERS'
-                  ? bestSellers.length
+                  ? Math.min(topN, bestSellers.length)
                   : activeProducts.length}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               {rightPanelMode === 'BEST_SELLERS' && (
-                <select
-                  value={bestSellerCategoryId}
-                  onChange={(e) => setBestSellerCategoryId(e.target.value)}
-                  className="h-7 px-2.5 rounded-full bg-white border border-zinc-200/80 text-[11px] font-medium text-zinc-700 focus:outline-none"
-                >
-                  <option value="ALL">Mọi danh mục</option>
-                  {categories
-                    .filter((c) => !c.isDeleted)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
+                <>
+                  <select
+                    value={topN}
+                    onChange={(e) => setTopN(Number(e.target.value) as 5 | 10 | 20)}
+                    aria-label="Số lượng Top sản phẩm"
+                    className="h-7 px-2.5 rounded-full bg-white border border-zinc-200/80 text-[11px] font-medium text-zinc-700 focus:outline-none"
+                  >
+                    <option value={5}>Top 5</option>
+                    <option value={10}>Top 10</option>
+                    <option value={20}>Top 20</option>
+                  </select>
+                  <select
+                    value={bestSellerCategoryId}
+                    onChange={(e) => setBestSellerCategoryId(e.target.value)}
+                    aria-label="Lọc danh mục bán chạy"
+                    className="h-7 px-2.5 rounded-full bg-white border border-zinc-200/80 text-[11px] font-medium text-zinc-700 focus:outline-none"
+                  >
+                    <option value="ALL">Mọi danh mục</option>
+                    {categories
+                      .filter((c) => !c.isDeleted)
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </>
               )}
 
               <div className="flex items-center gap-1 bg-zinc-200/60 p-0.5 rounded-full text-[11px]">
@@ -532,9 +646,9 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
             {rightPanelMode === 'BEST_SELLERS'
-              ? bestSellers.slice(0, 5).map((item, idx) => {
+              ? bestSellers.slice(0, topN).map((item, idx) => {
                   const colors = [
                     'from-amber-200 to-orange-400',
                     'from-sky-200 to-blue-500',
@@ -551,7 +665,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                         <div
                           className={`w-8 h-8 rounded-full bg-gradient-to-tr ${
                             colors[idx % colors.length]
-                          } shrink-0 flex items-center justify-center text-[11px] font-bold text-zinc-900/70`}
+                          } shrink-0 flex items-center justify-center text-[11px] font-bold text-zinc-900/80`}
                         >
                           #{idx + 1}
                         </div>
@@ -634,7 +748,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Slow-Moving / Dead-Stock Inventory Report (UC-61, ISS-11) */}
+      {/* Slow-Moving / Dead-Stock Inventory Report (UC-61) */}
       <div className="space-y-3 pt-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -687,31 +801,37 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
           </div>
 
           <div className="divide-y divide-zinc-100">
-            {deadStockItems.map((item) => (
-              <div
-                key={item.id}
-                className="grid grid-cols-12 items-center px-5 py-3.5 text-xs"
-              >
-                <div className="col-span-4">
-                  <p className="font-semibold text-zinc-900">{item.name}</p>
-                  <p className="text-[11px] font-mono text-zinc-400">{item.code}</p>
-                </div>
-                <div className="col-span-2 font-semibold text-zinc-800">
-                  {item.stock} đơn vị
-                </div>
-                <div className="col-span-2 font-medium text-zinc-800">
-                  {formatVND(item.tiedCapital)}
-                </div>
-                <div className="col-span-2 text-zinc-500 text-[11px]">
-                  {formatDate(item.lastSoldAt)}
-                </div>
-                <div className="col-span-2 text-right">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[11px] font-medium">
-                    {item.daysUnsold} ngày
-                  </span>
-                </div>
+            {deadStockItems.length === 0 ? (
+              <div className="px-5 py-6 text-center text-xs text-zinc-400">
+                Không có sản phẩm nào tồn đọng từ {deadStockDays} ngày trở lên trong bộ lọc hiện tại.
               </div>
-            ))}
+            ) : (
+              deadStockItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="grid grid-cols-12 items-center px-5 py-3.5 text-xs"
+                >
+                  <div className="col-span-4">
+                    <p className="font-semibold text-zinc-900">{item.name}</p>
+                    <p className="text-[11px] font-mono text-zinc-400">{item.code}</p>
+                  </div>
+                  <div className="col-span-2 font-semibold text-zinc-800">
+                    {item.stock} đơn vị
+                  </div>
+                  <div className="col-span-2 font-medium text-zinc-800">
+                    {formatVND(item.tiedCapital)}
+                  </div>
+                  <div className="col-span-2 text-zinc-500 text-[11px]">
+                    {formatDate(item.lastSoldAt)}
+                  </div>
+                  <div className="col-span-2 text-right">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[11px] font-medium">
+                      {item.daysUnsold} ngày
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -779,7 +899,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Print / Export Executive Report Modal */}
+      {/* Print / Export Executive Report Modal (UC-62) */}
       {showPrintModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl border border-zinc-200/80 max-w-2xl w-full p-6 sm:p-8 shadow-xl space-y-6 max-h-[90vh] overflow-y-auto">
@@ -789,11 +909,11 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                   HCShop · Báo cáo Tổng hợp Kinh doanh & Tồn kho
                 </span>
                 <h2 className="text-lg font-bold text-zinc-900 mt-1">
-                  Báo cáo Kết quả Vận hành ({period})
+                  Báo cáo Kết quả Vận hành ({reportPeriodLabel})
                 </h2>
                 <p className="text-xs text-zinc-500">
                   Ngày lập: {formatDateTime(new Date().toISOString())} · Người lập:{' '}
-                  {currentUser?.fullName || 'Quản lý'}
+                  {currentUser?.fullName || 'Quản lý'} · Kỳ biểu đồ: {currentSeries.label}
                 </p>
               </div>
               <button
@@ -805,22 +925,42 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 text-xs">
+            {hasNoReportData && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200/80 flex items-start gap-2.5 text-xs text-amber-900">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">
+                    Không có dữ liệu để xuất báo cáo trong khoảng thời gian đã chọn.
+                  </p>
+                  <p className="text-amber-700 mt-0.5">
+                    Vui lòng điều chỉnh lại bộ lọc ngày trước khi in hoặc lưu PDF (UC-62).
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
               <div className="p-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60">
                 <p className="text-zinc-500">Doanh thu hoàn tất</p>
-                <p className="text-base font-bold text-zinc-900 mt-1">
+                <p className="text-sm font-bold text-zinc-900 mt-1">
                   {formatVND(totalRevenue)}
                 </p>
               </div>
               <div className="p-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60">
-                <p className="text-zinc-500">Đơn hoàn thành / Tổng đơn</p>
-                <p className="text-base font-bold text-zinc-900 mt-1">
-                  {completedOrders.length} / {orders.length} đơn
+                <p className="text-zinc-500">Đơn hoàn thành / Tổng</p>
+                <p className="text-sm font-bold text-zinc-900 mt-1">
+                  {completedOrders.length} / {ordersInRange.length} đơn
                 </p>
               </div>
               <div className="p-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60">
-                <p className="text-zinc-500">Tổng mã SKU đang bán</p>
-                <p className="text-base font-bold text-zinc-900 mt-1">
+                <p className="text-zinc-500">Sắp hết hàng</p>
+                <p className="text-sm font-bold text-amber-700 mt-1">
+                  {lowStockCount} sản phẩm
+                </p>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60">
+                <p className="text-zinc-500">SKU đang bán</p>
+                <p className="text-sm font-bold text-zinc-900 mt-1">
                   {activeProducts.length} sản phẩm
                 </p>
               </div>
@@ -828,11 +968,12 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
 
             <div className="space-y-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-                Top sản phẩm dẫn đầu doanh số
+                Top {topN} sản phẩm dẫn đầu doanh số
               </h4>
               <table className="w-full text-xs border border-zinc-200/70 rounded-xl overflow-hidden">
                 <thead className="bg-zinc-50 text-zinc-500">
                   <tr>
+                    <th className="py-2 px-3 text-left">Hạng</th>
                     <th className="py-2 px-3 text-left">Mã SKU</th>
                     <th className="py-2 px-3 text-left">Sản phẩm</th>
                     <th className="py-2 px-3 text-right">SL bán</th>
@@ -840,8 +981,11 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {bestSellers.slice(0, 5).map((b) => (
+                  {bestSellers.slice(0, topN).map((b, idx) => (
                     <tr key={b.productId}>
+                      <td className="py-2 px-3 font-semibold text-zinc-700">
+                        #{idx + 1}
+                      </td>
                       <td className="py-2 px-3 font-mono">{b.code}</td>
                       <td className="py-2 px-3 font-medium text-zinc-900">
                         {b.name}
@@ -866,8 +1010,9 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
               </button>
               <button
                 type="button"
+                disabled={hasNoReportData}
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold"
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>In báo cáo / Lưu PDF</span>

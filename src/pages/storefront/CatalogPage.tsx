@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, ArrowUpDown, Heart, Plus, RotateCcw } from 'lucide-react';
+import { AlertCircle, ArrowUpDown, FolderSearch, Heart, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { PaginationBar } from '../../components/common/PaginationBar';
 import { formatVND } from '../../utils/formatters';
@@ -26,10 +26,27 @@ export const CatalogPage: React.FC = () => {
   const [onlyInStock, setOnlyInStock] = useState(false);
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
+  const [categorySearch, setCategorySearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const pageSize = 8;
+
+  // UC-12: Tìm kiếm danh mục sản phẩm (chỉ hiển thị danh mục đang bật & chưa xóa)
+  const visibleCategories = useMemo(
+    () => categories.filter((c) => c.isVisible && !c.isDeleted),
+    [categories]
+  );
+
+  const matchedCategories = useMemo(() => {
+    const q = categorySearch.trim().toLowerCase();
+    if (!q) return visibleCategories;
+    return visibleCategories.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q)
+    );
+  }, [visibleCategories, categorySearch]);
 
   const minPriceNum = minPrice.trim() !== '' ? Number(minPrice) : null;
   const maxPriceNum = maxPrice.trim() !== '' ? Number(maxPrice) : null;
@@ -115,6 +132,7 @@ export const CatalogPage: React.FC = () => {
   const handleClearFilters = () => {
     setSelectedCategoryId('ALL');
     setSearchQuery('');
+    setCategorySearch('');
     setOnlyInStock(false);
     setMinPrice('');
     setMaxPrice('');
@@ -125,6 +143,7 @@ export const CatalogPage: React.FC = () => {
   const hasActiveFilters =
     selectedCategoryId !== 'ALL' ||
     Boolean(searchQuery.trim()) ||
+    Boolean(categorySearch.trim()) ||
     onlyInStock ||
     Boolean(minPrice.trim()) ||
     Boolean(maxPrice.trim());
@@ -225,6 +244,81 @@ export const CatalogPage: React.FC = () => {
                 <option value="STOCK_DESC">Tồn kho: Nhiều nhất</option>
               </select>
             </div>
+          </div>
+        </div>
+
+        {/* UC-12: Tìm kiếm & chọn nhanh Danh mục sản phẩm (GET /api/danh-muc/tim-kiem) */}
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-3 flex flex-col sm:flex-row sm:items-center gap-2.5">
+          <div className="relative w-full sm:w-60 shrink-0">
+            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              maxLength={100}
+              value={categorySearch}
+              onChange={(e) => setCategorySearch(e.target.value)}
+              placeholder="Tìm danh mục sản phẩm..."
+              aria-label="Tìm kiếm danh mục"
+              className="w-full h-8 pl-8 pr-7 rounded-full bg-[#f4f4f5] text-xs text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
+            />
+            {categorySearch && (
+              <button
+                type="button"
+                onClick={() => setCategorySearch('')}
+                aria-label="Xóa từ khóa danh mục"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 flex-1">
+            {!categorySearch.trim() && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategoryId('ALL');
+                  setCurrentPage(1);
+                }}
+                className={`h-7 px-3 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                  selectedCategoryId === 'ALL'
+                    ? 'bg-zinc-900 text-white'
+                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/80'
+                }`}
+              >
+                Tất cả danh mục
+              </button>
+            )}
+            {matchedCategories.length === 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400 px-2">
+                <FolderSearch className="w-3.5 h-3.5" />
+                Không tìm thấy danh mục phù hợp với &ldquo;{categorySearch}&rdquo;
+              </span>
+            ) : (
+              matchedCategories.map((cat) => {
+                const count = products.filter(
+                  (p) => p.categoryId === cat.id && p.isVisible && !p.isDeleted
+                ).length;
+                const active = selectedCategoryId === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCategoryId(cat.id);
+                      setCurrentPage(1);
+                    }}
+                    className={`h-7 px-3 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                      active
+                        ? 'bg-zinc-900 text-white'
+                        : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/80'
+                    }`}
+                  >
+                    {cat.name} ({count})
+                  </button>
+                );
+              })
+            )}
           </div>
         </div>
 

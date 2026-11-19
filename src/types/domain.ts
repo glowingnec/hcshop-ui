@@ -18,6 +18,8 @@ export interface User {
   securityAnswerHash?: string;
   failedLoginAttempts: number;
   lockoutUntil?: string;
+  failedRecoveryAttempts?: number;
+  recoveryLockoutUntil?: string;
   avatar?: string;
   dob?: string;
   gender?: Gender;
@@ -27,7 +29,7 @@ export interface User {
 export interface AccountLockHistory {
   id: string;
   userId: string;
-  action: 'LOCK' | 'UNLOCK';
+  newStatus: AccountStatus;
   reason: string;
   actorName: string;
   createdAt: string;
@@ -81,6 +83,8 @@ export type StockMovementType =
 export interface StockHistory {
   id: string;
   productId: string;
+  orderId?: string;
+  orderCode?: string;
   type: StockMovementType;
   quantityChange: number; // + for import/restore, - for sale/adjust
   stockBefore: number;
@@ -113,6 +117,7 @@ export interface Voucher {
   usageLimit: number;
   usedCount: number;
   isActive: boolean;
+  isDeleted?: boolean;
   createdAt: string;
 }
 
@@ -150,6 +155,7 @@ export interface Order {
   items: OrderItem[];
   shippingAddress: ShippingAddress;
   paymentMethod: PaymentMethod;
+  voucherId?: string;
   voucherCode?: string;
   discountAmount: number;
   subtotal: number;

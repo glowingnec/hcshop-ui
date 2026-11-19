@@ -61,7 +61,7 @@ export const CatalogManagementPage: React.FC = () => {
   const [prdCategoryId, setPrdCategoryId] = useState('');
   const [prdPrice, setPrdPrice] = useState('');
   const [prdInitialStock, setPrdInitialStock] = useState('10');
-  const [prdMinThreshold, setPrdMinThreshold] = useState('5');
+  const [prdMinThreshold, setPrdMinThreshold] = useState('0');
   const [prdDescription, setPrdDescription] = useState('');
   const [prdImageUrl, setPrdImageUrl] = useState('');
   const [prdIsVisibleOnCreate, setPrdIsVisibleOnCreate] = useState(true);
@@ -132,7 +132,7 @@ export const CatalogManagementPage: React.FC = () => {
     setPrdCategoryId(activeCategories[0]?.id || '');
     setPrdPrice('1500000');
     setPrdInitialStock('15');
-    setPrdMinThreshold('5');
+    setPrdMinThreshold('0');
     setPrdDescription('');
     setPrdImageUrl('');
     setPrdIsVisibleOnCreate(true);
@@ -622,6 +622,7 @@ export const CatalogManagementPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  maxLength={50}
                   disabled={Boolean(editingProduct)}
                   value={prdCode}
                   onChange={(e) => setPrdCode(e.target.value)}
@@ -634,6 +635,7 @@ export const CatalogManagementPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  maxLength={200}
                   value={prdName}
                   onChange={(e) => setPrdName(e.target.value)}
                   placeholder="Nhập tên sản phẩm..."
@@ -676,10 +678,12 @@ export const CatalogManagementPage: React.FC = () => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                    Tồn kho khởi tạo
+                    Tồn kho khởi tạo *
                   </label>
                   <input
                     type="number"
+                    min={0}
+                    required
                     value={prdInitialStock}
                     onChange={(e) => setPrdInitialStock(e.target.value)}
                     className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
@@ -691,6 +695,7 @@ export const CatalogManagementPage: React.FC = () => {
                   </label>
                   <input
                     type="number"
+                    min={0}
                     value={prdMinThreshold}
                     onChange={(e) => setPrdMinThreshold(e.target.value)}
                     className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
@@ -711,12 +716,15 @@ export const CatalogManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Mô tả ngắn
+                Mô tả ngắn *
               </label>
               <textarea
                 rows={3}
+                required
+                maxLength={2000}
                 value={prdDescription}
                 onChange={(e) => setPrdDescription(e.target.value)}
+                placeholder="Nhập mô tả chi tiết sản phẩm..."
                 className="w-full p-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
               />
             </div>
@@ -778,6 +786,7 @@ export const CatalogManagementPage: React.FC = () => {
               </label>
               <input
                 type="text"
+                maxLength={100}
                 value={catName}
                 onChange={(e) => setCatName(e.target.value)}
                 placeholder="VD: Danh mục 09"
@@ -797,6 +806,7 @@ export const CatalogManagementPage: React.FC = () => {
               </label>
               <textarea
                 rows={3}
+                maxLength={500}
                 value={catDescription}
                 onChange={(e) => setCatDescription(e.target.value)}
                 className="w-full p-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"

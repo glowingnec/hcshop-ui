@@ -46,8 +46,9 @@ export const ProductDetailPage: React.FC = () => {
   const [reviewPage, setReviewPage] = useState(1);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
-  // Review Form State (UC-53 & UC-54)
+  // Review Form State (UC-53 & UC-54, MAJ-06 per-order review)
   const [isWritingReview, setIsWritingReview] = useState(false);
+  const [reviewTargetOrderId, setReviewTargetOrderId] = useState<string | undefined>(undefined);
   const [ratingInput, setRatingInput] = useState(5);
   const [commentInput, setCommentInput] = useState('');
   const [reviewImages, setReviewImages] = useState<string[]>([]);
@@ -90,7 +91,24 @@ export const ProductDetailPage: React.FC = () => {
     return Number((sum / productReviews.length).toFixed(1));
   }, [productReviews]);
 
-  // Check if currentUser can review or already reviewed (UC-53, UC-54)
+  // Danh sách đơn hoàn thành có chứa sản phẩm này của khách hàng (UQ_DanhGia_DonHang_SanPham)
+  const myCompletedOrdersForProduct = useMemo(() => {
+    if (!currentUser || !id) return [];
+    return orders.filter(
+      (o) =>
+        o.userId === currentUser.id &&
+        o.status === 'HoanThanh' &&
+        o.items.some((item) => item.productId === id)
+    );
+  }, [orders, currentUser, id]);
+
+  const unreviewedCompletedOrder = useMemo(() => {
+    if (!currentUser) return undefined;
+    return myCompletedOrdersForProduct.find(
+      (o) => !productReviews.some((r) => r.orderId === o.id && r.userId === currentUser.id)
+    );
+  }, [myCompletedOrdersForProduct, productReviews, currentUser]);
+
   const myExistingReview = useMemo(
     () =>
       currentUser
@@ -99,15 +117,7 @@ export const ProductDetailPage: React.FC = () => {
     [productReviews, currentUser]
   );
 
-  const hasCompletedPurchase = useMemo(() => {
-    if (!currentUser || !id) return false;
-    return orders.some(
-      (o) =>
-        o.userId === currentUser.id &&
-        o.status === 'HoanThanh' &&
-        o.items.some((item) => item.productId === id)
-    );
-  }, [orders, currentUser, id]);
+  const hasCompletedPurchase = myCompletedOrdersForProduct.length > 0;
 
   // UC-18 2a: Sản phẩm không tồn tại hoặc đang ẩn
   if (!product) {
@@ -138,13 +148,25 @@ export const ProductDetailPage: React.FC = () => {
     .filter((p) => p.id !== product.id && p.isVisible && !p.isDeleted)
     .slice(0, 4);
 
-  const handleOpenReviewForm = () => {
+  const handleOpenReviewForm = (specificReview?: (typeof productReviews)[number]) => {
     setReviewError(null);
-    if (myExistingReview) {
+    if (specificReview) {
+      setReviewTargetOrderId(specificReview.orderId);
+      setRatingInput(specificReview.rating);
+      setCommentInput(specificReview.comment);
+      setReviewImages(specificReview.images || []);
+    } else if (unreviewedCompletedOrder) {
+      setReviewTargetOrderId(unreviewedCompletedOrder.id);
+      setRatingInput(5);
+      setCommentInput('');
+      setReviewImages([]);
+    } else if (myExistingReview) {
+      setReviewTargetOrderId(myExistingReview.orderId);
       setRatingInput(myExistingReview.rating);
       setCommentInput(myExistingReview.comment);
       setReviewImages(myExistingReview.images || []);
     } else {
+      setReviewTargetOrderId(undefined);
       setRatingInput(5);
       setCommentInput('');
       setReviewImages([]);
@@ -154,7 +176,13 @@ export const ProductDetailPage: React.FC = () => {
 
   const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = submitReview(product.id, ratingInput, commentInput, reviewImages);
+    const res = submitReview(
+      product.id,
+      ratingInput,
+      commentInput,
+      reviewImages,
+      reviewTargetOrderId
+    );
     if (!res.ok) {
       setReviewError(res.message);
       return;
@@ -320,12 +348,14 @@ export const ProductDetailPage: React.FC = () => {
           {/* Write or Edit Review Button (UC-53 & UC-54) */}
           {hasCompletedPurchase || myExistingReview ? (
             <button
-              onClick={handleOpenReviewForm}
+              onClick={() => handleOpenReviewForm()}
               className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-blue-50 hover:bg-blue-100/80 text-blue-600 text-xs font-medium transition-colors self-start sm:self-auto"
             >
               <Pencil className="w-3.5 h-3.5" />
               <span>
-                {myExistingReview ? 'Chỉnh sửa đánh giá của bạn' : 'Viết đánh giá'}
+                {unreviewedCompletedOrder
+                  ? 'Viết đánh giá'
+                  : 'Chỉnh sửa đánh giá của bạn'}
               </span>
             </button>
           ) : (
@@ -389,7 +419,12 @@ export const ProductDetailPage: React.FC = () => {
           >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-zinc-900">
-                {myExistingReview ? 'Chỉnh sửa đánh giá' : 'Gửi đánh giá mới'}
+                {reviewTargetOrderId &&
+                productReviews.some(
+                  (r) => r.orderId === reviewTargetOrderId && r.userId === currentUser?.id
+                )
+                  ? 'Chỉnh sửa đánh giá'
+                  : 'Gửi đánh giá mới'}
               </span>
               <div className="flex items-center gap-1">
                 {[1, 2, 3, 4, 5].map((star) => (
@@ -533,7 +568,7 @@ export const ProductDetailPage: React.FC = () => {
 
                       {isOwner && (
                         <button
-                          onClick={handleOpenReviewForm}
+                          onClick={() => handleOpenReviewForm(rev)}
                           className="h-7 px-2.5 rounded-full bg-zinc-100 hover:bg-zinc-200/70 text-[11px] font-medium text-zinc-600"
                         >
                           Sửa

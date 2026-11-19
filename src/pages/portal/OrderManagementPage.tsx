@@ -12,6 +12,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { PaginationBar } from '../../components/common/PaginationBar';
 import { Order, OrderStatus } from '../../types/domain';
 import {
@@ -64,10 +65,13 @@ const REJECT_PRESETS = [
 
 export const OrderManagementPage: React.FC = () => {
   const {
+    currentUser,
     orders,
     staffConfirmOrRejectOrder,
     staffAdvanceOrderStatus,
   } = useApp();
+
+  const canProcessOrders = currentUser?.role === 'NhanVien';
 
   const [statusFilter, setStatusFilter] = useState<'ALL' | OrderStatus>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,6 +81,11 @@ export const OrderManagementPage: React.FC = () => {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [statusNote, setStatusNote] = useState('');
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [pendingTransition, setPendingTransition] = useState<
+    | { type: 'CONFIRM'; order: Order }
+    | { type: 'ADVANCE'; order: Order; nextStatus: OrderStatus; buttonLabel: string }
+    | null
+  >(null);
 
   const pageSize = 8;
 
@@ -441,64 +450,76 @@ export const OrderManagementPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Action Controls by Status (UC-43, UC-44, ISS-06) */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {activeOrder.status === 'ChoXacNhan' && (
-                    <>
+                {/* Action Controls by Status (UC-43, UC-44 — NhanVien only; QuanLy read-only per CRIT-03) */}
+                {canProcessOrders ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeOrder.status === 'ChoXacNhan' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setRejectingOrder(activeOrder)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                          Từ chối / Hủy đơn
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPendingTransition({ type: 'CONFIRM', order: activeOrder })
+                          }
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold transition-colors"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Xác nhận đơn
+                        </button>
+                      </>
+                    )}
+
+                    {activeOrder.status === 'DaXacNhan' && (
                       <button
                         type="button"
                         onClick={() => setRejectingOrder(activeOrder)}
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors"
                       >
                         <XCircle className="w-3.5 h-3.5" />
-                        Từ chối / Hủy đơn
+                        Hủy đơn hàng
                       </button>
+                    )}
+
+                    {NEXT_STEP_CONFIG[activeOrder.status] && (
                       <button
                         type="button"
-                        onClick={() => handleConfirmOrder(activeOrder.id)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold transition-colors"
+                        onClick={() =>
+                          setPendingTransition({
+                            type: 'ADVANCE',
+                            order: activeOrder,
+                            nextStatus: NEXT_STEP_CONFIG[activeOrder.status]!.nextStatus,
+                            buttonLabel: NEXT_STEP_CONFIG[activeOrder.status]!.buttonLabel,
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Xác nhận đơn
+                        <span>{NEXT_STEP_CONFIG[activeOrder.status]!.buttonLabel}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </button>
-                    </>
-                  )}
-
-                  {activeOrder.status === 'DaXacNhan' && (
-                    <button
-                      type="button"
-                      onClick={() => setRejectingOrder(activeOrder)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors"
-                    >
-                      <XCircle className="w-3.5 h-3.5" />
-                      Hủy đơn hàng
-                    </button>
-                  )}
-
-                  {NEXT_STEP_CONFIG[activeOrder.status] && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleAdvanceStatus(
-                          activeOrder.id,
-                          NEXT_STEP_CONFIG[activeOrder.status]!.nextStatus
-                        )
-                      }
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
-                    >
-                      <span>{NEXT_STEP_CONFIG[activeOrder.status]!.buttonLabel}</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="inline-flex items-center px-3 py-1.5 rounded-full bg-zinc-100 border border-zinc-200/80 text-[11px] font-medium text-zinc-600">
+                    Chế độ chỉ xem (Quản lý)
+                  </span>
+                )}
               </div>
 
-              {/* Optional note input when order is active */}
-              {(activeOrder.status === 'ChoXacNhan' ||
-                NEXT_STEP_CONFIG[activeOrder.status]) && (
+              {/* Optional note input when order is active (NhanVien only) */}
+              {canProcessOrders &&
+                (activeOrder.status === 'ChoXacNhan' ||
+                  NEXT_STEP_CONFIG[activeOrder.status]) && (
                 <div className="bg-[#f8f9fa] rounded-xl p-3 border border-zinc-200/60 flex items-center gap-2">
                   <input
                     type="text"
+                    maxLength={500}
                     value={statusNote}
                     onChange={(e) => setStatusNote(e.target.value)}
                     placeholder="Ghi chú vận hành khi chuyển trạng thái (tùy chọn)..."
@@ -680,6 +701,7 @@ export const OrderManagementPage: React.FC = () => {
               {rejectPreset === 'Lý do khác' && (
                 <textarea
                   rows={2}
+                  maxLength={500}
                   value={rejectCustom}
                   onChange={(e) => setRejectCustom(e.target.value)}
                   placeholder="Nhập lý do cụ thể..."
@@ -706,6 +728,56 @@ export const OrderManagementPage: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Confirm Order Status Transition Modal (UC-43, UC-44, MIN-02) */}
+      <ConfirmModal
+        open={Boolean(pendingTransition)}
+        title={
+          pendingTransition?.type === 'CONFIRM'
+            ? `Xác nhận đơn hàng #${pendingTransition.order.code}?`
+            : pendingTransition
+              ? `Chuyển trạng thái đơn #${pendingTransition.order.code}?`
+              : ''
+        }
+        description={
+          pendingTransition?.type === 'CONFIRM'
+            ? `Đơn hàng của ${pendingTransition.order.customerName} (${formatVND(
+                pendingTransition.order.totalAmount
+              )}) sẽ chuyển sang trạng thái "Đã xác nhận" để bắt đầu đóng gói.`
+            : pendingTransition
+              ? `Cập nhật đơn hàng sang trạng thái "${
+                  ORDER_STATUS_META[pendingTransition.nextStatus].label
+                }". Trạng thái sẽ được ghi nhận vào nhật ký xử lý.`
+              : ''
+        }
+        warningNote={
+          pendingTransition?.type === 'ADVANCE' &&
+          pendingTransition.nextStatus === 'HoanThanh'
+            ? 'Sau khi xác nhận hoàn thành, đơn hàng sẽ không thể hoàn tác và doanh thu sẽ được tính vào báo cáo.'
+            : statusNote.trim()
+              ? `Ghi chú đính kèm: "${statusNote.trim()}"`
+              : undefined
+        }
+        confirmLabel={
+          pendingTransition?.type === 'CONFIRM'
+            ? 'Xác nhận đơn'
+            : pendingTransition?.buttonLabel || 'Xác nhận'
+        }
+        variant="primary"
+        onCancel={() => setPendingTransition(null)}
+        onConfirm={() => {
+          if (!pendingTransition) return;
+          if (pendingTransition.type === 'CONFIRM') {
+            handleConfirmOrder(pendingTransition.order.id);
+          } else {
+            handleAdvanceStatus(
+              pendingTransition.order.id,
+              pendingTransition.nextStatus
+            );
+          }
+          setPendingTransition(null);
+        }}
+      />
     </div>
   );
 };
