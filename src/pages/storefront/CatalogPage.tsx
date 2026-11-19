@@ -162,7 +162,7 @@ export const CatalogPage: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <h1 className="text-[28px] font-bold text-zinc-900 tracking-tight leading-tight">
-              Xin chào, {currentUser ? currentUser.fullName : 'User'}
+              {currentUser ? `Xin chào, ${currentUser.fullName}` : 'Chào mừng đến với HCShop'}
             </h1>
             <div className="flex items-center gap-2 mt-0.5">
               <p className="text-sm text-zinc-500">

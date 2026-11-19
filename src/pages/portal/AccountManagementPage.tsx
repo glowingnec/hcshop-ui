@@ -257,13 +257,13 @@ export const AccountManagementPage: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
-                <th className="py-3 px-4">Thành viên</th>
-                <th className="py-3 px-4">Liên hệ</th>
-                <th className="py-3 px-4">Ngày tạo</th>
-                <th className="py-3 px-4">Đơn đã mua</th>
-                <th className="py-3 px-4">Vai trò</th>
-                <th className="py-3 px-4">Trạng thái</th>
-                <th className="py-3 px-4 text-right">Thao tác</th>
+                <th className="py-3 px-4 whitespace-nowrap">Thành viên</th>
+                <th className="py-3 px-4 whitespace-nowrap">Liên hệ</th>
+                <th className="py-3 px-4 whitespace-nowrap">Ngày tạo</th>
+                <th className="py-3 px-4 whitespace-nowrap">Đơn đã mua</th>
+                <th className="py-3 px-4 whitespace-nowrap">Vai trò</th>
+                <th className="py-3 px-4 whitespace-nowrap">Trạng thái</th>
+                <th className="py-3 px-4 text-right whitespace-nowrap">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 text-xs">
@@ -353,26 +353,26 @@ export const AccountManagementPage: React.FC = () => {
                       )}
                     </td>
 
-                    <td className="py-3 px-4 text-right">
-                      <div className="inline-flex items-center gap-1.5 justify-end">
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1.5 justify-end flex-nowrap">
                         <button
                           type="button"
                           onClick={() => setDetailUser(user)}
                           title="Xem chi tiết tài khoản (UC-08)"
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-medium transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-medium whitespace-nowrap transition-colors"
                         >
-                          <Eye className="w-3.5 h-3.5" />
+                          <Eye className="w-3.5 h-3.5 shrink-0" />
                           <span>Chi tiết</span>
                         </button>
 
                         {isSelf ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 px-1">
-                            <ShieldCheck className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 px-1 whitespace-nowrap">
+                            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                             Đang đăng nhập
                           </span>
                         ) : !isCustomer ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 px-1">
-                            <ShieldCheck className="w-3.5 h-3.5" />
+                          <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400 px-1 whitespace-nowrap">
+                            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
                             Nội bộ
                           </span>
                         ) : (
@@ -381,9 +381,9 @@ export const AccountManagementPage: React.FC = () => {
                               type="button"
                               onClick={() => setHistoryUser(user)}
                               title="Xem lịch sử khóa / mở khóa"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-medium transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-medium whitespace-nowrap transition-colors"
                             >
-                              <History className="w-3.5 h-3.5" />
+                              <History className="w-3.5 h-3.5 shrink-0" />
                               <span>Lịch sử{lockLogCount > 0 ? ` (${lockLogCount})` : ''}</span>
                             </button>
 
@@ -391,18 +391,18 @@ export const AccountManagementPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => handleUnlock(user)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold whitespace-nowrap transition-colors"
                               >
-                                <Unlock className="w-3.5 h-3.5" />
+                                <Unlock className="w-3.5 h-3.5 shrink-0" />
                                 <span>Mở khóa</span>
                               </button>
                             ) : (
                               <button
                                 type="button"
                                 onClick={() => setLockingUser(user)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-semibold transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-semibold whitespace-nowrap transition-colors"
                               >
-                                <Lock className="w-3.5 h-3.5" />
+                                <Lock className="w-3.5 h-3.5 shrink-0" />
                                 <span>Khóa TK</span>
                               </button>
                             )}

@@ -10,14 +10,14 @@ import {
   Voucher,
 } from '../types/domain';
 
-// Clean minimal SVG data URI placeholder matching the Figma mockup
+// Clean minimal vector SVG placeholder (no mid-word wrapping; crisp at both card and thumbnail sizes)
 export function createPlaceholderImage(num = '03', bgHex = '#f1f5f9', fgHex = '#94a3b8'): string {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="480" viewBox="0 0 600 480">
     <rect width="600" height="480" fill="${bgHex}"/>
-    <rect x="240" y="135" width="120" height="86" rx="14" fill="none" stroke="${fgHex}" stroke-width="3" stroke-dasharray="7 6"/>
-    <text x="300" y="255" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="500" fill="${fgHex}" text-anchor="middle">Image</text>
-    <text x="300" y="278" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="500" fill="${fgHex}" text-anchor="middle">Placehol</text>
-    <text x="300" y="301" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="500" fill="${fgHex}" text-anchor="middle">der ${num}</text>
+    <rect x="210" y="130" width="180" height="140" rx="22" fill="none" stroke="${fgHex}" stroke-width="6"/>
+    <circle cx="262" cy="182" r="16" fill="${fgHex}"/>
+    <path d="M226 250 L282 198 L322 234 L348 210 L374 250 Z" fill="${fgHex}" opacity="0.75"/>
+    <text x="300" y="328" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="600" letter-spacing="2" fill="${fgHex}" text-anchor="middle">#${num}</text>
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }

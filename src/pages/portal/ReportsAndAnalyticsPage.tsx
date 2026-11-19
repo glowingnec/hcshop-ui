@@ -31,57 +31,23 @@ import {
 
 type GranularityKey = 'Ngay' | 'Tuan' | 'Thang' | 'Nam';
 
-const GRANULARITY_SERIES: Record<
-  GranularityKey,
-  { label: string; growth: string; data: { label: string; value: number }[] }
-> = {
-  Ngay: {
-    label: 'Ngày',
-    growth: '+5.84%',
-    data: [
-      { label: '04/11', value: 3200000 },
-      { label: '05/11', value: 4100000 },
-      { label: '06/11', value: 3800000 },
-      { label: '07/11', value: 5200000 },
-      { label: '08/11', value: 4900000 },
-      { label: '09/11', value: 6400000 },
-      { label: '10/11', value: 6950000 },
-    ],
-  },
-  Tuan: {
-    label: 'Tuần',
-    growth: '+8.16%',
-    data: [
-      { label: 'Tuần 1', value: 12400000 },
-      { label: 'Tuần 2', value: 14800000 },
-      { label: 'Tuần 3', value: 13900000 },
-      { label: 'Tuần 4', value: 18200000 },
-      { label: 'Tuần 5', value: 21400000 },
-    ],
-  },
-  Thang: {
-    label: 'Tháng',
-    growth: '+14.20%',
-    data: [
-      { label: 'T6', value: 34500000 },
-      { label: 'T7', value: 39200000 },
-      { label: 'T8', value: 36800000 },
-      { label: 'T9', value: 45100000 },
-      { label: 'T10', value: 52400000 },
-      { label: 'T11', value: 58900000 },
-    ],
-  },
-  Nam: {
-    label: 'Năm',
-    growth: '+26.50%',
-    data: [
-      { label: '2023', value: 312000000 },
-      { label: '2024', value: 428000000 },
-      { label: '2025', value: 515000000 },
-      { label: '2026', value: 642000000 },
-    ],
-  },
+const GRANULARITY_LABELS: Record<GranularityKey, string> = {
+  Ngay: 'Ngày',
+  Tuan: 'Tuần',
+  Thang: 'Tháng',
+  Nam: 'Năm',
 };
+
+function getIsoWeekKey(date: Date): { key: string; label: string } {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  const yyyy = d.getUTCFullYear();
+  const ww = String(weekNo).padStart(2, '0');
+  return { key: `${yyyy}-W${ww}`, label: `W${ww}/${String(yyyy).slice(-2)}` };
+}
 
 const ALL_STATUSES: OrderStatus[] = [
   'ChoXacNhan',
@@ -261,22 +227,62 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
   }, [activeProducts, deadStockDays, deadStockCategoryId]);
 
   const topSeller = bestSellers[0];
-  const currentSeries = GRANULARITY_SERIES[granularity];
 
-  // UC-59: Peak (Max) and Lowest (Min) revenue period callouts
+  // UC-59 (MAJ-01): Dynamic revenue chart series aggregated from completedOrders in selected date range
+  const revenueSeries = useMemo(() => {
+    const buckets = new Map<string, { key: string; label: string; value: number }>();
+
+    completedOrders.forEach((order) => {
+      const dt = new Date(order.createdAt);
+      if (Number.isNaN(dt.getTime())) return;
+
+      let key = '';
+      let label = '';
+      if (granularity === 'Ngay') {
+        const yyyy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getDate()).padStart(2, '0');
+        key = `${yyyy}-${mm}-${dd}`;
+        label = `${dd}/${mm}`;
+      } else if (granularity === 'Tuan') {
+        const wk = getIsoWeekKey(dt);
+        key = wk.key;
+        label = wk.label;
+      } else if (granularity === 'Thang') {
+        const yyyy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, '0');
+        key = `${yyyy}-${mm}`;
+        label = `T${mm}/${String(yyyy).slice(-2)}`;
+      } else {
+        const yyyy = String(dt.getFullYear());
+        key = yyyy;
+        label = yyyy;
+      }
+
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.value += order.totalAmount;
+      } else {
+        buckets.set(key, { key, label, value: order.totalAmount });
+      }
+    });
+
+    return Array.from(buckets.values()).sort((a, b) => a.key.localeCompare(b.key));
+  }, [completedOrders, granularity]);
+
+  // UC-59: Peak (Max) and Lowest (Min) revenue period callouts from real series
   const { maxRevenuePoint, minRevenuePoint } = useMemo(() => {
-    const pts = currentSeries.data;
-    if (pts.length === 0) {
+    if (revenueSeries.length === 0) {
       return { maxRevenuePoint: null, minRevenuePoint: null };
     }
-    let maxPt = pts[0];
-    let minPt = pts[0];
-    for (const pt of pts) {
+    let maxPt = revenueSeries[0];
+    let minPt = revenueSeries[0];
+    for (const pt of revenueSeries) {
       if (pt.value > maxPt.value) maxPt = pt;
       if (pt.value < minPt.value) minPt = pt;
     }
     return { maxRevenuePoint: maxPt, minRevenuePoint: minPt };
-  }, [currentSeries]);
+  }, [revenueSeries]);
 
   // UC-62 1a: Block PDF print when selected range has no report data
   const hasNoReportData =
@@ -399,86 +405,86 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 6 KPI Cards (UC-58 incl. TongKhachHangMoi & SoSanPhamSapHetHang) */}
+      {/* 6 KPI Cards (UC-58 incl. TongKhachHangMoi & SoSanPhamSapHetHang — 2-row layout prevents truncation per MAJ-02) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500">Tổng doanh thu</span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-lg font-semibold text-zinc-900 truncate">
-              {formatVND(totalRevenue)}
-            </span>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 shrink-0">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between min-h-[112px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">Tổng doanh thu</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 whitespace-nowrap shrink-0">
               Hoàn thành
             </span>
           </div>
+          <div className="text-lg font-bold text-zinc-900 whitespace-nowrap">
+            {formatVND(totalRevenue)}
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500">Tổng đơn hàng</span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold text-zinc-900">
-              {ordersInRange.length}
-            </span>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 shrink-0">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between min-h-[112px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">Tổng đơn hàng</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 whitespace-nowrap shrink-0">
               {completedOrders.length} hoàn thành
             </span>
           </div>
+          <div className="text-2xl font-bold text-zinc-900 whitespace-nowrap">
+            {ordersInRange.length}
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500">Khách hàng mới</span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold text-zinc-900">
-              {newCustomersCount}
-            </span>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 shrink-0">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between min-h-[112px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">Khách hàng mới</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 whitespace-nowrap shrink-0">
               Tài khoản KH
             </span>
           </div>
+          <div className="text-2xl font-bold text-zinc-900 whitespace-nowrap">
+            {newCustomersCount}
+          </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500">Sắp hết hàng</span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold text-amber-600">
-              {lowStockCount}
-            </span>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between min-h-[112px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">Sắp hết hàng</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap shrink-0">
               Cảnh báo tồn
             </span>
           </div>
-        </div>
-
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500 truncate">
-            Bán chạy · {topSeller?.code || 'N/A'}
-          </span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold text-zinc-900">
-              {topSeller?.soldQty || 0}
-            </span>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 shrink-0">
-              Đã bán
-            </span>
+          <div className="text-2xl font-bold text-amber-600 whitespace-nowrap">
+            {lowStockCount}
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between h-28">
-          <span className="text-xs text-zinc-500">Danh mục hàng hóa</span>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold text-zinc-900">
-              {activeProducts.length}
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between min-h-[112px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500 truncate">
+              Bán chạy · {topSeller?.code || 'N/A'}
             </span>
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 shrink-0">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 whitespace-nowrap shrink-0">
+              Đã bán
+            </span>
+          </div>
+          <div className="text-2xl font-bold text-zinc-900 whitespace-nowrap">
+            {topSeller?.soldQty || 0}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 flex flex-col justify-between min-h-[112px]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-zinc-500">Danh mục hàng</span>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600 whitespace-nowrap shrink-0">
               Mặt hàng
             </span>
+          </div>
+          <div className="text-2xl font-bold text-zinc-900 whitespace-nowrap">
+            {activeProducts.length}
           </div>
         </div>
       </div>
 
       {/* Middle Section: Revenue Chart (UC-59) + Right Ranking List (UC-60) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left 7 Cols: Revenue Chart Card with Ngày/Tuần/Tháng/Năm & Max/Min callouts */}
+        {/* Left 7 Cols: Dynamic Revenue Chart Card with Ngày/Tuần/Tháng/Năm & Max/Min callouts */}
         <div className="lg:col-span-7 bg-white rounded-2xl border border-zinc-200/70 p-6 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-sm font-semibold text-zinc-900">
@@ -496,7 +502,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                       : 'text-zinc-500 hover:text-zinc-800'
                   }`}
                 >
-                  {GRANULARITY_SERIES[key].label}
+                  {GRANULARITY_LABELS[key]}
                 </button>
               ))}
             </div>
@@ -505,14 +511,12 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="space-y-1">
               <p className="text-xs text-zinc-400">Doanh thu lũy kế kỳ chọn</p>
-              <p className="text-2xl font-semibold text-zinc-900">
+              <p className="text-2xl font-semibold text-zinc-900 whitespace-nowrap">
                 {formatVND(totalRevenue)}
               </p>
-              <p className="text-xs text-emerald-600 font-medium">
-                ↑ {currentSeries.growth}{' '}
-                <span className="text-zinc-400 ml-1">
-                  theo {currentSeries.label.toLowerCase()}
-                </span>
+              <p className="text-xs text-zinc-500 font-medium">
+                {completedOrders.length} đơn hoàn thành · nhóm theo{' '}
+                {GRANULARITY_LABELS[granularity].toLowerCase()}
               </p>
             </div>
 
@@ -537,38 +541,46 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
           </div>
 
           <div className="h-56 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={currentSeries.data}>
-                <XAxis
-                  dataKey="label"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: '#a1a1aa' }}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: '#a1a1aa' }}
-                  tickFormatter={(v) => `${Math.round(v / 1000000)}M`}
-                  width={42}
-                />
-                <Tooltip
-                  formatter={(val: number) => [formatVND(val), 'Doanh thu']}
-                  contentStyle={{
-                    borderRadius: '12px',
-                    border: '1px solid #e4e4e7',
-                    fontSize: '12px',
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#0284c7"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: '#0284c7' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {revenueSeries.length === 0 ? (
+              <div className="h-full rounded-xl bg-[#f8f9fa] border border-dashed border-zinc-200 flex items-center justify-center text-xs text-zinc-400 px-4 text-center">
+                Chưa có đơn hàng hoàn thành trong kỳ báo cáo ({reportPeriodLabel}) để hiển thị biểu đồ.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={revenueSeries}>
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: '#a1a1aa' }}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: '#a1a1aa' }}
+                    tickFormatter={(v) =>
+                      v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${Math.round(v / 1000)}k`
+                    }
+                    width={46}
+                  />
+                  <Tooltip
+                    formatter={(val: number) => [formatVND(val), 'Doanh thu']}
+                    contentStyle={{
+                      borderRadius: '12px',
+                      border: '1px solid #e4e4e7',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#0284c7"
+                    strokeWidth={2}
+                    dot={{ r: 4, fill: '#0284c7' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
@@ -913,7 +925,8 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                 </h2>
                 <p className="text-xs text-zinc-500">
                   Ngày lập: {formatDateTime(new Date().toISOString())} · Người lập:{' '}
-                  {currentUser?.fullName || 'Quản lý'} · Kỳ biểu đồ: {currentSeries.label}
+                  {currentUser?.fullName || 'Quản lý'} · Kỳ biểu đồ:{' '}
+                  {GRANULARITY_LABELS[granularity]}
                 </p>
               </div>
               <button

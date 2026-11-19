@@ -477,8 +477,26 @@ export const CheckoutPage: React.FC = () => {
               </form>
             )}
 
-            <div className="space-y-2.5">
-              {userAddresses.map((addr) => {
+            {userAddresses.length === 0 && !showAddAddress ? (
+              <div className="p-5 rounded-xl bg-[#f8f9fa] border border-dashed border-zinc-300 text-center space-y-2.5">
+                <p className="text-xs font-medium text-zinc-700">
+                  Bạn chưa có địa chỉ nhận hàng nào.
+                </p>
+                <p className="text-[11px] text-zinc-500">
+                  Vui lòng thêm địa chỉ giao hàng để tiếp tục hoàn tất đơn hàng (UC-34).
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddAddress(true)}
+                  className="inline-flex items-center gap-1.5 h-8 px-4 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Thêm địa chỉ mới</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {userAddresses.map((addr) => {
                 const isSelected = selectedAddressId === addr.id;
                 return (
                   <div
@@ -525,7 +543,8 @@ export const CheckoutPage: React.FC = () => {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Step 2: Áp dụng mã giảm giá (UC-35) */}

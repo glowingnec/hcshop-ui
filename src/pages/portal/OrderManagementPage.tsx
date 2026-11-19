@@ -603,9 +603,9 @@ export const OrderManagementPage: React.FC = () => {
                     <CreditCard className="w-3.5 h-3.5 text-zinc-400" />
                     <span>Thanh toán</span>
                   </div>
-                  <div className="flex justify-between text-zinc-600">
-                    <span>Hình thức:</span>
-                    <span className="font-medium text-zinc-900">
+                  <div className="flex justify-between gap-2 text-zinc-600">
+                    <span className="whitespace-nowrap shrink-0">Hình thức:</span>
+                    <span className="font-medium text-zinc-900 text-right">
                       {PAYMENT_METHOD_LABELS[activeOrder.paymentMethod]}
                     </span>
                   </div>

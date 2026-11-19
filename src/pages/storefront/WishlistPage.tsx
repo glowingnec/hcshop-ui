@@ -22,6 +22,7 @@ export const WishlistPage: React.FC = () => {
   const getCategoryName = (catId: string) =>
     categories.find((c) => c.id === catId)?.name ?? 'Danh mục';
 
+  // MAJ-04: Không dùng bulk cart API — gọi tuần tự POST /api/gio-hang/san-pham cho từng sản phẩm hợp lệ
   const handleMoveAllToCart = () => {
     let addedCount = 0;
     let cappedCount = 0;
