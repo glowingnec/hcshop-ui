@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
 import { formatVND } from '../../utils/formatters';
 
 export const CartPage: React.FC = () => {
@@ -259,30 +260,13 @@ export const CartPage: React.FC = () => {
                     </div>
 
                     {/* UC-32: Xác nhận xóa dòng khỏi giỏ */}
-                    {confirmRemoveId === item.productId ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleConfirmRemove(item.productId)}
-                          className="h-7 px-2.5 rounded-full bg-rose-500 text-white text-[11px] font-medium"
-                        >
-                          Xóa
-                        </button>
-                        <button
-                          onClick={() => setConfirmRemoveId(null)}
-                          className="h-7 px-2 rounded-full bg-zinc-100 text-zinc-600 text-[11px]"
-                        >
-                          Hủy
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmRemoveId(item.productId)}
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"
-                        aria-label="Xóa sản phẩm"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => setConfirmRemoveId(item.productId)}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:bg-rose-50 hover:text-rose-500 transition-colors"
+                      aria-label="Xóa sản phẩm"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               );
@@ -329,6 +313,25 @@ export const CartPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* UC-32 / ISS-13: Modal xác nhận xóa sản phẩm khỏi giỏ hàng */}
+      <ConfirmModal
+        open={Boolean(confirmRemoveId)}
+        title="Xóa sản phẩm khỏi giỏ hàng?"
+        description={
+          confirmRemoveId
+            ? `Bạn có chắc muốn xóa "${
+                products.find((p) => p.id === confirmRemoveId)?.name || 'sản phẩm này'
+              }" khỏi giỏ hàng không?`
+            : ''
+        }
+        confirmLabel="Xóa khỏi giỏ"
+        variant="danger"
+        onCancel={() => setConfirmRemoveId(null)}
+        onConfirm={() => {
+          if (confirmRemoveId) handleConfirmRemove(confirmRemoveId);
+        }}
+      />
     </div>
   );
 };

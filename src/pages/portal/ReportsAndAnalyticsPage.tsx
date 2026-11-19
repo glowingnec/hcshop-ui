@@ -18,7 +18,13 @@ import {
   YAxis,
 } from 'recharts';
 import { useApp } from '../../context/AppContext';
-import { formatDate, formatDateTime, formatVND } from '../../utils/formatters';
+import { OrderStatus } from '../../types/domain';
+import {
+  formatDate,
+  formatDateTime,
+  formatVND,
+  ORDER_STATUS_META,
+} from '../../utils/formatters';
 
 type PeriodKey = '1D' | '1W' | '1M' | '3M' | '1Y';
 
@@ -85,23 +91,64 @@ const PERIOD_SERIES: Record<
   },
 };
 
+const ALL_STATUSES: OrderStatus[] = [
+  'ChoXacNhan',
+  'DaXacNhan',
+  'DangChuanBi',
+  'DangGiao',
+  'HoanThanh',
+  'DaHuy',
+];
+
 export const ReportsAndAnalyticsPage: React.FC = () => {
-  const { currentUser, orders, products, stockHistories } = useApp();
+  const { currentUser, users, categories, orders, products, stockHistories } = useApp();
   const navigate = useNavigate();
 
   const [period, setPeriod] = useState<PeriodKey>('1M');
+  const [reportStartDate, setReportStartDate] = useState('');
+  const [reportEndDate, setReportEndDate] = useState('');
+  const [bestSellerCategoryId, setBestSellerCategoryId] = useState('ALL');
+  const [deadStockCategoryId, setDeadStockCategoryId] = useState('ALL');
   const [rightPanelMode, setRightPanelMode] = useState<'BEST_SELLERS' | 'STOCK'>('BEST_SELLERS');
   const [deadStockDays, setDeadStockDays] = useState<30 | 60 | 90>(30);
   const [showPrintModal, setShowPrintModal] = useState(false);
+
+  const dateRangeError =
+    reportStartDate && reportEndDate && reportStartDate > reportEndDate
+      ? 'Ngày bắt đầu không được lớn hơn ngày kết thúc.'
+      : null;
 
   const activeProducts = useMemo(
     () => products.filter((p) => !p.isDeleted),
     [products]
   );
 
+  const ordersInRange = useMemo(() => {
+    if (dateRangeError) return orders;
+    return orders.filter((o) => {
+      const day = o.createdAt.slice(0, 10);
+      if (reportStartDate && day < reportStartDate) return false;
+      if (reportEndDate && day > reportEndDate) return false;
+      return true;
+    });
+  }, [orders, reportStartDate, reportEndDate, dateRangeError]);
+
+  const newCustomersCount = useMemo(() => {
+    const customers = users.filter((u) => u.role === 'KhachHang');
+    if (dateRangeError || (!reportStartDate && !reportEndDate)) {
+      return customers.length;
+    }
+    return customers.filter((u) => {
+      const day = u.createdAt.slice(0, 10);
+      if (reportStartDate && day < reportStartDate) return false;
+      if (reportEndDate && day > reportEndDate) return false;
+      return true;
+    }).length;
+  }, [users, reportStartDate, reportEndDate, dateRangeError]);
+
   const completedOrders = useMemo(
-    () => orders.filter((o) => o.status === 'COMPLETED'),
-    [orders]
+    () => ordersInRange.filter((o) => o.status === 'HoanThanh'),
+    [ordersInRange]
   );
 
   const totalRevenue = useMemo(
@@ -109,26 +156,45 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
     [completedOrders]
   );
 
-  // Best-selling products calculation
+  const orderStatusBreakdown = useMemo(() => {
+    return ALL_STATUSES.map((st) => ({
+      status: st,
+      meta: ORDER_STATUS_META[st],
+      count: ordersInRange.filter((o) => o.status === st).length,
+    }));
+  }, [ordersInRange]);
+
+  // Best-selling products calculation (UC-60, ISS-11)
   const bestSellers = useMemo(() => {
     const map = new Map<
       string,
-      { productId: string; code: string; name: string; price: number; soldQty: number; revenue: number }
+      {
+        productId: string;
+        categoryId: string;
+        code: string;
+        name: string;
+        price: number;
+        soldQty: number;
+        revenue: number;
+      }
     >();
 
-    activeProducts.forEach((p) => {
-      map.set(p.id, {
-        productId: p.id,
-        code: p.code,
-        name: p.name,
-        price: p.price,
-        soldQty: 0,
-        revenue: 0,
+    activeProducts
+      .filter((p) => bestSellerCategoryId === 'ALL' || p.categoryId === bestSellerCategoryId)
+      .forEach((p) => {
+        map.set(p.id, {
+          productId: p.id,
+          categoryId: p.categoryId,
+          code: p.code,
+          name: p.name,
+          price: p.price,
+          soldQty: 0,
+          revenue: 0,
+        });
       });
-    });
 
-    orders
-      .filter((o) => o.status !== 'CANCELLED')
+    ordersInRange
+      .filter((o) => o.status !== 'DaHuy')
       .forEach((order) => {
         order.items.forEach((item) => {
           const entry = map.get(item.productId);
@@ -140,13 +206,17 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
       });
 
     return Array.from(map.values()).sort((a, b) => b.soldQty - a.soldQty);
-  }, [activeProducts, orders]);
+  }, [activeProducts, ordersInRange, bestSellerCategoryId]);
 
-  // Slow-moving / Dead-stock products calculation
+  // Slow-moving / Dead-stock products calculation (UC-61, ISS-11)
   const deadStockItems = useMemo(() => {
     const refNow = new Date('2026-11-10T12:00:00Z').getTime();
     return activeProducts
-      .filter((p) => p.stock > 0)
+      .filter(
+        (p) =>
+          p.stock > 0 &&
+          (deadStockCategoryId === 'ALL' || p.categoryId === deadStockCategoryId)
+      )
       .map((p) => {
         const lastDate = p.lastSoldAt ? new Date(p.lastSoldAt).getTime() : new Date(p.createdAt).getTime();
         const daysUnsold = Math.max(0, Math.floor((refNow - lastDate) / (1000 * 60 * 60 * 24)));
@@ -158,7 +228,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
       })
       .filter((p) => p.daysUnsold >= deadStockDays || p.stock >= 18)
       .sort((a, b) => b.daysUnsold - a.daysUnsold);
-  }, [activeProducts, deadStockDays]);
+  }, [activeProducts, deadStockDays, deadStockCategoryId]);
 
   const topSeller = bestSellers[0];
   const currentSeries = PERIOD_SERIES[period];
@@ -210,16 +280,69 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4 Minimal KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Custom Date Range Filter & 6-Status Order Breakdown (UC-59, ISS-11) */}
+      <div className="bg-white rounded-2xl border border-zinc-200/70 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-semibold text-zinc-700">Kỳ báo cáo tùy chọn:</span>
+            <input
+              type="date"
+              value={reportStartDate}
+              onChange={(e) => setReportStartDate(e.target.value)}
+              aria-label="Từ ngày"
+              className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+            />
+            <span className="text-zinc-400">–</span>
+            <input
+              type="date"
+              value={reportEndDate}
+              onChange={(e) => setReportEndDate(e.target.value)}
+              aria-label="Đến ngày"
+              className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+            />
+            {(reportStartDate || reportEndDate) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReportStartDate('');
+                  setReportEndDate('');
+                }}
+                className="h-8 px-3 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-medium"
+              >
+                Toàn bộ thời gian
+              </button>
+            )}
+          </div>
+          {dateRangeError && (
+            <span className="text-xs text-rose-600 font-medium">{dateRangeError}</span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-zinc-100">
+          <span className="text-[11px] font-medium text-zinc-400 mr-1">
+            Phân bổ trạng thái đơn:
+          </span>
+          {orderStatusBreakdown.map((item) => (
+            <span
+              key={item.status}
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium ${item.meta.badgeClass}`}
+            >
+              {item.meta.label}: {item.count}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* 5 Minimal KPI Cards (incl. TongKhachHangMoi) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
           <span className="text-xs text-zinc-500">Tổng doanh thu</span>
           <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-semibold text-zinc-900">
+            <span className="text-xl font-semibold text-zinc-900">
               {formatVND(totalRevenue)}
             </span>
             <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">
-              ↑ 5.32%
+              Hoàn thành
             </span>
           </div>
         </div>
@@ -228,24 +351,36 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
           <span className="text-xs text-zinc-500">Tổng đơn hàng</span>
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-2xl font-semibold text-zinc-900">
-              {orders.length}
+              {ordersInRange.length}
             </span>
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">
-              ↑ 2.24%
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+              {completedOrders.length} hoàn thành
+            </span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
+          <span className="text-xs text-zinc-500">Khách hàng mới</span>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-2xl font-semibold text-zinc-900">
+              {newCustomersCount}
+            </span>
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
+              Tài khoản KH
             </span>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-zinc-200/70 p-5 flex flex-col justify-between h-28">
           <span className="text-xs text-zinc-500">
-            Bán chạy nhất · {topSeller?.code || 'SKU-01'}
+            Bán chạy nhất · {topSeller?.code || 'N/A'}
           </span>
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-2xl font-semibold text-zinc-900">
-              {topSeller?.soldQty || 12}
+              {topSeller?.soldQty || 0}
             </span>
             <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600">
-              ↑ 4.72%
+              Đã bán
             </span>
           </div>
         </div>
@@ -338,7 +473,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
 
         {/* Right 5 Cols: Best Sellers / Stock Holdings */}
         <div className="lg:col-span-5 space-y-4">
-          <div className="flex items-center justify-between px-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-zinc-900">
                 {rightPanelMode === 'BEST_SELLERS'
@@ -346,33 +481,54 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
                   : 'Tồn kho nhanh'}
               </h3>
               <span className="text-xs text-zinc-400">
-                {activeProducts.length}
+                {rightPanelMode === 'BEST_SELLERS'
+                  ? bestSellers.length
+                  : activeProducts.length}
               </span>
             </div>
 
-            <div className="flex items-center gap-1 bg-zinc-200/60 p-0.5 rounded-full text-[11px]">
-              <button
-                type="button"
-                onClick={() => setRightPanelMode('BEST_SELLERS')}
-                className={`px-2.5 py-0.5 rounded-full font-medium ${
-                  rightPanelMode === 'BEST_SELLERS'
-                    ? 'bg-white text-zinc-900 shadow-sm'
-                    : 'text-zinc-500'
-                }`}
-              >
-                Bán chạy
-              </button>
-              <button
-                type="button"
-                onClick={() => setRightPanelMode('STOCK')}
-                className={`px-2.5 py-0.5 rounded-full font-medium ${
-                  rightPanelMode === 'STOCK'
-                    ? 'bg-white text-zinc-900 shadow-sm'
-                    : 'text-zinc-500'
-                }`}
-              >
-                Tồn kho
-              </button>
+            <div className="flex items-center gap-2">
+              {rightPanelMode === 'BEST_SELLERS' && (
+                <select
+                  value={bestSellerCategoryId}
+                  onChange={(e) => setBestSellerCategoryId(e.target.value)}
+                  className="h-7 px-2.5 rounded-full bg-white border border-zinc-200/80 text-[11px] font-medium text-zinc-700 focus:outline-none"
+                >
+                  <option value="ALL">Mọi danh mục</option>
+                  {categories
+                    .filter((c) => !c.isDeleted)
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+
+              <div className="flex items-center gap-1 bg-zinc-200/60 p-0.5 rounded-full text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setRightPanelMode('BEST_SELLERS')}
+                  className={`px-2.5 py-0.5 rounded-full font-medium ${
+                    rightPanelMode === 'BEST_SELLERS'
+                      ? 'bg-white text-zinc-900 shadow-sm'
+                      : 'text-zinc-500'
+                  }`}
+                >
+                  Bán chạy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRightPanelMode('STOCK')}
+                  className={`px-2.5 py-0.5 rounded-full font-medium ${
+                    rightPanelMode === 'STOCK'
+                      ? 'bg-white text-zinc-900 shadow-sm'
+                      : 'text-zinc-500'
+                  }`}
+                >
+                  Tồn kho
+                </button>
+              </div>
             </div>
           </div>
 
@@ -478,7 +634,7 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Slow-Moving / Dead-Stock Inventory Report */}
+      {/* Slow-Moving / Dead-Stock Inventory Report (UC-61, ISS-11) */}
       <div className="space-y-3 pt-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -488,7 +644,22 @@ export const ReportsAndAnalyticsPage: React.FC = () => {
             <span className="text-xs text-zinc-400">{deadStockItems.length}</span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <select
+              value={deadStockCategoryId}
+              onChange={(e) => setDeadStockCategoryId(e.target.value)}
+              className="h-7 px-3 rounded-full bg-white border border-zinc-200/80 text-xs font-medium text-zinc-700 focus:outline-none"
+            >
+              <option value="ALL">Tất cả danh mục</option>
+              {categories
+                .filter((c) => !c.isDeleted)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+
             {([30, 60, 90] as const).map((days) => (
               <button
                 key={days}

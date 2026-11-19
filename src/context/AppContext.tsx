@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
+  AccountLockHistory,
   CartItem,
   Category,
   DiscountType,
+  Gender,
   Order,
   OrderStatus,
   PaymentMethod,
@@ -16,6 +18,7 @@ import {
 } from '../types/domain';
 import {
   createPlaceholderImage,
+  SEED_ACCOUNT_LOCK_HISTORIES,
   SEED_ADDRESSES,
   SEED_CATEGORIES,
   SEED_ORDERS,
@@ -25,7 +28,8 @@ import {
   SEED_USERS,
   SEED_VOUCHERS,
 } from '../data/mockData';
-import { formatVND } from '../utils/formatters';
+import { isAddressInDeliveryZone } from '../data/vnLocations';
+import { formatVND, ROLE_LABELS } from '../utils/formatters';
 
 interface VoucherValidationResult {
   ok: boolean;
@@ -37,6 +41,7 @@ interface VoucherValidationResult {
 interface AppContextType {
   currentUser: User | null;
   users: User[];
+  accountLockHistories: AccountLockHistory[];
   categories: Category[];
   products: Product[];
   stockHistories: StockHistory[];
@@ -52,7 +57,7 @@ interface AppContextType {
   // Actions
   setSearchQuery: (q: string) => void;
   setSelectedCategoryId: (id: string) => void;
-  switchDemoRole: (roleOrGuest: 'CUSTOMER' | 'STAFF' | 'ADMIN' | 'GUEST') => void;
+  switchDemoRole: (roleOrGuest: UserRole | 'GUEST') => void;
   resetDemoData: () => void;
 
   // Cart & Wishlist (UC-29..33)
@@ -96,8 +101,8 @@ interface AppContextType {
     phone: string;
     password: string;
     confirmPassword: string;
-    securityQuestion?: string;
-    securityAnswer?: string;
+    securityQuestion: string;
+    securityAnswer: string;
   }) => { ok: boolean; user?: User; message: string };
   logoutUser: () => void;
   lookupUserForRecovery: (
@@ -123,14 +128,16 @@ interface AppContextType {
     fullName: string;
     phone: string;
     dob?: string;
-    gender?: 'Nam' | 'Nữ' | 'Khác';
+    gender?: Gender;
+    avatar?: string;
   }) => { ok: boolean; message: string };
 
   // Reviews (UC-53..56)
   submitReview: (
     productId: string,
     rating: number,
-    comment: string
+    comment: string,
+    images?: string[]
   ) => { ok: boolean; message: string };
   deleteReview: (reviewId: string) => { ok: boolean; message: string };
   toggleReviewLike: (reviewId: string) => { ok: boolean; message: string };
@@ -151,10 +158,12 @@ interface AppContextType {
   createCategory: (input: {
     name: string;
     description: string;
+    imageUrl?: string;
+    isVisible?: boolean;
   }) => { ok: boolean; message: string };
   updateCategory: (
     id: string,
-    input: { name: string; description: string }
+    input: { name: string; description: string; imageUrl?: string }
   ) => { ok: boolean; message: string };
   toggleCategoryVisibility: (id: string) => { ok: boolean; message: string };
   deleteCategory: (id: string) => { ok: boolean; message: string };
@@ -164,10 +173,11 @@ interface AppContextType {
     name: string;
     categoryId: string;
     price: number;
-    originalPrice?: number;
     description: string;
+    imageUrl?: string;
     minStockThreshold: number;
     initialStock: number;
+    isVisible?: boolean;
   }) => { ok: boolean; message: string };
   updateProduct: (
     id: string,
@@ -175,8 +185,8 @@ interface AppContextType {
       name: string;
       categoryId: string;
       price: number;
-      originalPrice?: number;
       description: string;
+      imageUrl?: string;
     }
   ) => { ok: boolean; message: string };
   toggleProductVisibility: (id: string) => { ok: boolean; message: string };
@@ -186,9 +196,9 @@ interface AppContextType {
   importStock: (params: {
     productId: string;
     quantity: number;
-    importPrice: number;
-    supplier: string;
-    note?: string;
+    importPrice?: number;
+    supplier?: string;
+    note: string;
   }) => { ok: boolean; message: string };
   adjustStockDecrease: (params: {
     productId: string;
@@ -203,7 +213,7 @@ interface AppContextType {
   // Admin Voucher Management
   createVoucher: (input: {
     code: string;
-    description: string;
+    description?: string;
     discountType: DiscountType;
     discountValue: number;
     maxDiscountAmount?: number;
@@ -211,12 +221,13 @@ interface AppContextType {
     startDate: string;
     endDate: string;
     usageLimit: number;
+    isActive?: boolean;
   }) => { ok: boolean; message: string };
   updateVoucher: (
     id: string,
     input: {
       code: string;
-      description: string;
+      description?: string;
       discountType: DiscountType;
       discountValue: number;
       maxDiscountAmount?: number;
@@ -244,18 +255,17 @@ interface AppContextType {
     userId: string,
     lockReason?: string
   ) => { ok: boolean; message: string };
-  updateAccountRole: (
-    userId: string,
-    newRole: UserRole
-  ) => { ok: boolean; message: string };
 }
 
-const STORAGE_KEY = 'hcshop_state_v6';
+const STORAGE_KEY = 'hcshop_state_v7';
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(SEED_USERS);
+  const [accountLockHistories, setAccountLockHistories] = useState<AccountLockHistory[]>(
+    SEED_ACCOUNT_LOCK_HISTORIES
+  );
   const [currentUser, setCurrentUser] = useState<User | null>(SEED_USERS[2]);
   const [categories, setCategories] = useState<Category[]>(SEED_CATEGORIES);
   const [products, setProducts] = useState<Product[]>(SEED_PRODUCTS);
@@ -283,6 +293,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed.users) setUsers(parsed.users);
+        if (parsed.accountLockHistories) setAccountLockHistories(parsed.accountLockHistories);
         if (parsed.currentUser !== undefined) setCurrentUser(parsed.currentUser);
         if (parsed.categories) setCategories(parsed.categories);
         if (parsed.products) setProducts(parsed.products);
@@ -306,6 +317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         STORAGE_KEY,
         JSON.stringify({
           users,
+          accountLockHistories,
           currentUser,
           categories,
           products,
@@ -323,6 +335,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [
     users,
+    accountLockHistories,
     currentUser,
     categories,
     products,
@@ -335,7 +348,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     wishlistProductIds,
   ]);
 
-  const switchDemoRole = (roleOrGuest: 'CUSTOMER' | 'STAFF' | 'ADMIN' | 'GUEST') => {
+  const switchDemoRole = (roleOrGuest: UserRole | 'GUEST') => {
     if (roleOrGuest === 'GUEST') {
       setCurrentUser(null);
       return;
@@ -347,6 +360,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const resetDemoData = () => {
     localStorage.removeItem(STORAGE_KEY);
     setUsers(SEED_USERS);
+    setAccountLockHistories(SEED_ACCOUNT_LOCK_HISTORIES);
     setCurrentUser(SEED_USERS[2]);
     setCategories(SEED_CATEGORIES);
     setProducts(SEED_PRODUCTS);
@@ -532,7 +546,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 5. Tính mức giảm (Phần trăm có trần tối đa hoặc cố định)
     let discountAmount = 0;
-    if (voucher.discountType === 'PERCENT') {
+    if (voucher.discountType === 'PhanTram') {
       discountAmount = Math.round((subtotal * voucher.discountValue) / 100);
       if (voucher.maxDiscountAmount && discountAmount > voucher.maxDiscountAmount) {
         discountAmount = voucher.maxDiscountAmount;
@@ -571,7 +585,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!selectedAddress) {
       return { ok: false, message: 'Vui lòng chọn địa chỉ nhận hàng.' };
     }
-    if (selectedAddress.isOutOfDeliveryZone) {
+    if (!isAddressInDeliveryZone(selectedAddress.province, selectedAddress.district)) {
       return {
         ok: false,
         message: 'Địa chỉ nằm ngoài khu vực giao hàng hỗ trợ. Vui lòng chọn địa chỉ khác.',
@@ -607,7 +621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 0);
 
     // Kiểm tra giới hạn COD (UC-36 1a)
-    if (paymentMethod === 'COD' && subtotal > 20000000) {
+    if (paymentMethod === 'KhiNhanHang' && subtotal > 20000000) {
       return {
         ok: false,
         message: 'Thanh toán khi nhận hàng (COD) chỉ áp dụng cho đơn từ 20.000.000đ trở xuống.',
@@ -635,7 +649,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       code: orderCode,
       userId: currentUser.id,
       customerName: currentUser.fullName,
-      status: 'PENDING',
+      status: 'ChoXacNhan',
       items: validCartItems.map((item) => {
         const p = products.find((prod) => prod.id === item.productId)!;
         return {
@@ -652,10 +666,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       discountAmount,
       subtotal,
       totalAmount,
-      isPaid: paymentMethod !== 'COD',
+      isPaid: paymentMethod !== 'KhiNhanHang',
       timeline: [
         {
-          status: 'PENDING',
+          status: 'ChoXacNhan',
           timestamp: nowIso,
           note: 'Khách hàng đặt đơn thành công — Chờ xác nhận',
           actorName: currentUser.fullName,
@@ -674,7 +688,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         newHistories.push({
           id: `sh-${Date.now()}-${p.id}`,
           productId: p.id,
-          type: 'SALE',
+          type: 'XuatBan',
           quantityChange: -ordered.quantity,
           stockBefore: p.stock,
           stockAfter: nextStock,
@@ -714,7 +728,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // UC-53 & UC-54: Đánh giá sản phẩm
-  const submitReview = (productId: string, rating: number, comment: string) => {
+  const submitReview = (
+    productId: string,
+    rating: number,
+    comment: string,
+    images?: string[]
+  ) => {
     if (!currentUser) {
       return { ok: false, message: 'Vui lòng đăng nhập để đánh giá sản phẩm.' };
     }
@@ -725,9 +744,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!trimmed) {
       return { ok: false, message: 'Vui lòng nhập nội dung nhận xét.' };
     }
-    if (trimmed.length > 500) {
-      return { ok: false, message: 'Nội dung nhận xét không vượt quá 500 ký tự.' };
+    if (trimmed.length > 2000) {
+      return { ok: false, message: 'Nội dung nhận xét không vượt quá 2000 ký tự.' };
     }
+
+    const cleanImages = images && images.length > 0 ? images : undefined;
 
     const existing = reviews.find(
       (r) => r.productId === productId && r.userId === currentUser.id
@@ -737,7 +758,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setReviews((prev) =>
         prev.map((r) =>
           r.id === existing.id
-            ? { ...r, rating, comment: trimmed, isEdited: true }
+            ? {
+                ...r,
+                rating,
+                comment: trimmed,
+                images: images !== undefined ? cleanImages : r.images,
+                isEdited: true,
+              }
             : r
         )
       );
@@ -747,7 +774,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const completedOrder = orders.find(
       (o) =>
         o.userId === currentUser.id &&
-        o.status === 'COMPLETED' &&
+        o.status === 'HoanThanh' &&
         o.items.some((item) => item.productId === productId)
     );
 
@@ -764,8 +791,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       orderId: completedOrder.id,
       userId: currentUser.id,
       userName: currentUser.fullName,
+      userAvatar: currentUser.avatar,
       rating,
       comment: trimmed,
+      images: cleanImages,
       isEdited: false,
       likedByUserIds: [],
       createdAt: new Date().toISOString(),
@@ -783,7 +812,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!target) {
       return { ok: false, message: 'Đánh giá không còn tồn tại.' };
     }
-    if (currentUser.role !== 'ADMIN' && target.userId !== currentUser.id) {
+    if (currentUser.role !== 'QuanLy' && target.userId !== currentUser.id) {
       return { ok: false, message: 'Bạn chỉ có thể xóa đánh giá của chính mình.' };
     }
     setReviews((prev) => prev.filter((r) => r.id !== reviewId));
@@ -887,7 +916,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const order = orders.find((o) => o.id === orderId && o.userId === currentUser.id);
     if (!order) return { ok: false, message: 'Không tìm thấy đơn hàng.' };
 
-    if (order.status !== 'PENDING' && order.status !== 'CONFIRMED') {
+    if (order.status !== 'ChoXacNhan' && order.status !== 'DaXacNhan') {
       return {
         ok: false,
         message:
@@ -902,7 +931,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const nowIso = new Date().toISOString();
 
-    // 1. Hoàn lại tồn kho & Ghi lịch sử kho CANCEL_RESTORE
+    // 1. Hoàn lại tồn kho & Ghi lịch sử kho HoanDon
     const restoreLogs: StockHistory[] = [];
     setProducts((prev) =>
       prev.map((p) => {
@@ -912,7 +941,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         restoreLogs.push({
           id: `sh-cancel-${Date.now()}-${p.id}`,
           productId: p.id,
-          type: 'CANCEL_RESTORE',
+          type: 'HoanDon',
           quantityChange: item.quantity,
           stockBefore: p.stock,
           stockAfter: nextStock,
@@ -936,18 +965,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
-    // 3. Cập nhật trạng thái đơn sang CANCELLED
+    // 3. Cập nhật trạng thái đơn sang DaHuy
     setOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
           ? {
               ...o,
-              status: 'CANCELLED',
+              status: 'DaHuy',
               cancelReason: reason,
               timeline: [
                 ...o.timeline,
                 {
-                  status: 'CANCELLED',
+                  status: 'DaHuy',
                   timestamp: nowIso,
                   note: `Khách hàng hủy đơn — Lý do: ${reason}`,
                   actorName: currentUser.fullName,
@@ -1063,12 +1092,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     phone: string;
     password: string;
     confirmPassword: string;
-    securityQuestion?: string;
-    securityAnswer?: string;
+    securityQuestion: string;
+    securityAnswer: string;
   }) => {
     const fullName = input.fullName.trim();
     const email = input.email.trim().toLowerCase();
     const phone = input.phone.trim();
+    const securityQuestion = input.securityQuestion.trim();
+    const securityAnswer = input.securityAnswer.trim();
 
     if (!fullName || !email || !phone || !input.password) {
       return { ok: false, message: 'Vui lòng điền đầy đủ thông tin bắt buộc.' };
@@ -1109,7 +1140,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: false, message: 'Mật khẩu xác nhận không khớp.' };
     }
 
-    const nextIndex = users.filter((u) => u.role === 'CUSTOMER').length + 1;
+    if (!securityQuestion || !securityAnswer) {
+      return {
+        ok: false,
+        message: 'Vui lòng chọn câu hỏi bảo mật và nhập câu trả lời bảo mật.',
+      };
+    }
+
+    const nextIndex = users.filter((u) => u.role === 'KhachHang').length + 1;
     const newUser: User = {
       id: `usr-cust-${Date.now()}`,
       code: `KH${String(nextIndex).padStart(2, '0')}`,
@@ -1117,10 +1155,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       email,
       phone,
       passwordHash: input.password,
-      role: 'CUSTOMER',
+      role: 'KhachHang',
       isLocked: false,
-      securityQuestion: input.securityQuestion?.trim() || undefined,
-      securityAnswerHash: input.securityAnswer?.trim() || undefined,
+      securityQuestion,
+      securityAnswerHash: securityAnswer,
       failedLoginAttempts: 0,
       createdAt: new Date().toISOString(),
     };
@@ -1277,7 +1315,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     fullName: string;
     phone: string;
     dob?: string;
-    gender?: 'Nam' | 'Nữ' | 'Khác';
+    gender?: Gender;
+    avatar?: string;
   }) => {
     if (!currentUser) return { ok: false, message: 'Vui lòng đăng nhập.' };
     const fullName = params.fullName.trim();
@@ -1298,6 +1337,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       phone,
       dob: params.dob || currentUser.dob,
       gender: params.gender || currentUser.gender,
+      avatar: params.avatar !== undefined ? params.avatar || undefined : currentUser.avatar,
     };
     setCurrentUser(updated);
     setUsers((prev) => prev.map((u) => (u.id === currentUser.id ? updated : u)));
@@ -1305,37 +1345,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { ok: true, message: 'Đã lưu thông tin hồ sơ cá nhân.' };
   };
 
-  // Staff / Admin: Xác nhận hoặc Từ chối đơn hàng chờ duyệt
+  // Staff / Admin: Xác nhận hoặc Hủy/Từ chối đơn hàng (ChoXacNhan hoặc DaXacNhan theo UC-41)
   const staffConfirmOrRejectOrder = (
     orderId: string,
     action: 'CONFIRM' | 'REJECT',
     reasonOrNote?: string
   ) => {
-    if (!currentUser || (currentUser.role !== 'STAFF' && currentUser.role !== 'ADMIN')) {
+    if (!currentUser || (currentUser.role !== 'NhanVien' && currentUser.role !== 'QuanLy')) {
       return { ok: false, message: 'Bạn không có quyền xử lý đơn hàng.' };
     }
     const order = orders.find((o) => o.id === orderId);
     if (!order) return { ok: false, message: 'Không tìm thấy đơn hàng.' };
-    if (order.status !== 'PENDING') {
-      return { ok: false, message: 'Chỉ đơn hàng đang "Chờ xác nhận" mới có thể duyệt hoặc từ chối.' };
-    }
 
     const nowIso = new Date().toISOString();
+    const actorLabel = `${currentUser.fullName} (${ROLE_LABELS[currentUser.role]})`;
 
     if (action === 'CONFIRM') {
+      if (order.status !== 'ChoXacNhan') {
+        return { ok: false, message: 'Chỉ đơn hàng đang "Chờ xác nhận" mới có thể xác nhận.' };
+      }
       setOrders((prev) =>
         prev.map((o) =>
           o.id === orderId
             ? {
                 ...o,
-                status: 'CONFIRMED',
+                status: 'DaXacNhan',
                 timeline: [
                   ...o.timeline,
                   {
-                    status: 'CONFIRMED',
+                    status: 'DaXacNhan',
                     timestamp: nowIso,
                     note: reasonOrNote?.trim() || 'Đã xác nhận đơn hàng và chuyển kho chuẩn bị',
-                    actorName: `${currentUser.fullName} (${currentUser.role})`,
+                    actorName: actorLabel,
                   },
                 ],
               }
@@ -1345,10 +1386,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: true, message: `Đã xác nhận đơn hàng #${order.code}.` };
     }
 
-    // REJECT: bắt buộc có lý do + hoàn kho + hoàn lượt voucher
+    // REJECT / CANCEL: áp dụng cho cả ChoXacNhan và DaXacNhan (UC-41)
+    if (order.status !== 'ChoXacNhan' && order.status !== 'DaXacNhan') {
+      return {
+        ok: false,
+        message: 'Chỉ có thể hủy đơn hàng ở trạng thái "Chờ xác nhận" hoặc "Đã xác nhận".',
+      };
+    }
+
     const reason = reasonOrNote?.trim() || '';
     if (!reason) {
-      return { ok: false, message: 'Vui lòng nhập lý do từ chối đơn hàng.' };
+      return { ok: false, message: 'Vui lòng nhập lý do hủy / từ chối đơn hàng.' };
     }
 
     const restoreLogs: StockHistory[] = [];
@@ -1360,11 +1408,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         restoreLogs.push({
           id: `sh-reject-${Date.now()}-${p.id}`,
           productId: p.id,
-          type: 'CANCEL_RESTORE',
+          type: 'HoanDon',
           quantityChange: item.quantity,
           stockBefore: p.stock,
           stockAfter: nextStock,
-          reasonOrNote: `Hoàn kho do từ chối đơn #${order.code}: ${reason}`,
+          reasonOrNote: `Hoàn kho do hủy đơn #${order.code}: ${reason}`,
           actorName: currentUser.fullName,
           createdAt: nowIso,
         });
@@ -1388,15 +1436,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         o.id === orderId
           ? {
               ...o,
-              status: 'CANCELLED',
+              status: 'DaHuy',
               cancelReason: reason,
               timeline: [
                 ...o.timeline,
                 {
-                  status: 'CANCELLED',
+                  status: 'DaHuy',
                   timestamp: nowIso,
-                  note: `Cửa hàng từ chối đơn — Lý do: ${reason}`,
-                  actorName: `${currentUser.fullName} (${currentUser.role})`,
+                  note: `Cửa hàng hủy đơn — Lý do: ${reason}`,
+                  actorName: actorLabel,
                 },
               ],
             }
@@ -1404,25 +1452,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       )
     );
 
-    return { ok: true, message: `Đã từ chối đơn #${order.code} và hoàn trả tồn kho.` };
+    return { ok: true, message: `Đã hủy đơn #${order.code} và hoàn trả tồn kho.` };
   };
 
-  // Staff / Admin: Cập nhật trạng thái đơn hàng tuần tự (CONFIRMED -> PREPARING -> SHIPPING -> COMPLETED)
+  // Staff / Admin: Cập nhật trạng thái đơn hàng tuần tự (DaXacNhan -> DangChuanBi -> DangGiao -> HoanThanh)
   const staffAdvanceOrderStatus = (
     orderId: string,
     nextStatus: OrderStatus,
     note?: string
   ) => {
-    if (!currentUser || (currentUser.role !== 'STAFF' && currentUser.role !== 'ADMIN')) {
+    if (!currentUser || (currentUser.role !== 'NhanVien' && currentUser.role !== 'QuanLy')) {
       return { ok: false, message: 'Bạn không có quyền cập nhật trạng thái đơn hàng.' };
     }
     const order = orders.find((o) => o.id === orderId);
     if (!order) return { ok: false, message: 'Không tìm thấy đơn hàng.' };
 
     const validTransitions: Partial<Record<OrderStatus, OrderStatus>> = {
-      CONFIRMED: 'PREPARING',
-      PREPARING: 'SHIPPING',
-      SHIPPING: 'COMPLETED',
+      DaXacNhan: 'DangChuanBi',
+      DangChuanBi: 'DangGiao',
+      DangGiao: 'HoanThanh',
     };
 
     if (validTransitions[order.status] !== nextStatus) {
@@ -1433,9 +1481,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const defaultNotes: Partial<Record<OrderStatus, string>> = {
-      PREPARING: 'Đang đóng gói sản phẩm và bàn giao đơn vị vận chuyển',
-      SHIPPING: 'Đơn hàng đang trên đường giao đến địa chỉ người nhận',
-      COMPLETED: 'Giao hàng thành công — Đơn hàng hoàn tất',
+      DangChuanBi: 'Đang đóng gói sản phẩm và bàn giao đơn vị vận chuyển',
+      DangGiao: 'Đơn hàng đang trên đường giao đến địa chỉ người nhận',
+      HoanThanh: 'Giao hàng thành công — Đơn hàng hoàn tất',
     };
 
     const nowIso = new Date().toISOString();
@@ -1446,14 +1494,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? {
               ...o,
               status: nextStatus,
-              isPaid: nextStatus === 'COMPLETED' ? true : o.isPaid,
+              isPaid: nextStatus === 'HoanThanh' ? true : o.isPaid,
               timeline: [
                 ...o.timeline,
                 {
                   status: nextStatus,
                   timestamp: nowIso,
                   note: note?.trim() || defaultNotes[nextStatus] || 'Cập nhật trạng thái',
-                  actorName: `${currentUser.fullName} (${currentUser.role})`,
+                  actorName: `${currentUser.fullName} (${ROLE_LABELS[currentUser.role]})`,
                 },
               ],
             }
@@ -1465,7 +1513,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Admin: Quản lý Danh mục
-  const createCategory = (input: { name: string; description: string }) => {
+  const createCategory = (input: {
+    name: string;
+    description: string;
+    imageUrl?: string;
+    isVisible?: boolean;
+  }) => {
     const name = input.name.trim();
     const description = input.description.trim();
     if (!name) return { ok: false, message: 'Vui lòng nhập tên danh mục.' };
@@ -1482,9 +1535,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cat-${Date.now()}`,
       name,
       description: description || `Danh mục sản phẩm ${name}`,
-      imageUrl: createPlaceholderImage(num),
+      imageUrl: input.imageUrl?.trim() || createPlaceholderImage(num),
       iconName: num,
-      isVisible: true,
+      isVisible: input.isVisible !== undefined ? input.isVisible : true,
       isDeleted: false,
       createdAt: new Date().toISOString(),
     };
@@ -1495,7 +1548,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateCategory = (
     id: string,
-    input: { name: string; description: string }
+    input: { name: string; description: string; imageUrl?: string }
   ) => {
     const name = input.name.trim();
     const description = input.description.trim();
@@ -1512,7 +1565,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setCategories((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, name, description } : c))
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              name,
+              description,
+              imageUrl: input.imageUrl ? input.imageUrl : c.imageUrl,
+            }
+          : c
+      )
     );
     return { ok: true, message: 'Đã cập nhật thông tin danh mục.' };
   };
@@ -1558,10 +1620,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     name: string;
     categoryId: string;
     price: number;
-    originalPrice?: number;
     description: string;
+    imageUrl?: string;
     minStockThreshold: number;
     initialStock: number;
+    isVisible?: boolean;
   }) => {
     const code = input.code.trim().toUpperCase();
     const name = input.name.trim();
@@ -1585,19 +1648,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name,
       categoryId: input.categoryId,
       price: input.price,
-      originalPrice:
-        input.originalPrice && input.originalPrice > input.price
-          ? input.originalPrice
-          : undefined,
       description: input.description.trim() || `Mô tả sản phẩm ${name}`,
-      specs: {
-        'Mã SKU': code,
-        'Bảo hành': '12 tháng tiêu chuẩn',
-      },
-      imageUrl: createPlaceholderImage(num),
+      imageUrl: input.imageUrl?.trim() || createPlaceholderImage(num),
       stock: initialStock,
       minStockThreshold: Math.max(0, Math.floor(input.minStockThreshold || 5)),
-      isVisible: true,
+      isVisible: input.isVisible !== undefined ? input.isVisible : true,
       isDeleted: false,
       createdAt: nowIso,
     };
@@ -1609,7 +1664,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         {
           id: `sh-init-${Date.now()}`,
           productId: newProduct.id,
-          type: 'IMPORT',
+          type: 'NhapTang',
           quantityChange: initialStock,
           stockBefore: 0,
           stockAfter: initialStock,
@@ -1630,8 +1685,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name: string;
       categoryId: string;
       price: number;
-      originalPrice?: number;
       description: string;
+      imageUrl?: string;
     }
   ) => {
     const name = input.name.trim();
@@ -1650,11 +1705,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               name,
               categoryId: input.categoryId,
               price: input.price,
-              originalPrice:
-                input.originalPrice && input.originalPrice > input.price
-                  ? input.originalPrice
-                  : undefined,
               description: input.description.trim(),
+              imageUrl: input.imageUrl ? input.imageUrl : p.imageUrl,
             }
           : p
       )
@@ -1702,9 +1754,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const importStock = (params: {
     productId: string;
     quantity: number;
-    importPrice: number;
-    supplier: string;
-    note?: string;
+    importPrice?: number;
+    supplier?: string;
+    note: string;
   }) => {
     const product = products.find((p) => p.id === params.productId && !p.isDeleted);
     if (!product) return { ok: false, message: 'Vui lòng chọn sản phẩm hợp lệ.' };
@@ -1712,11 +1764,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!qty || qty <= 0) {
       return { ok: false, message: 'Số lượng nhập kho phải là số nguyên dương.' };
     }
-    if (params.importPrice < 0) {
+    if (params.importPrice !== undefined && params.importPrice < 0) {
       return { ok: false, message: 'Đơn giá nhập không hợp lệ.' };
     }
-    if (!params.supplier.trim()) {
-      return { ok: false, message: 'Vui lòng nhập tên nhà cung cấp.' };
+    const reasonNote = params.note.trim();
+    if (!reasonNote) {
+      return { ok: false, message: 'Vui lòng nhập lý do / ghi chú phiếu nhập kho.' };
     }
 
     const nowIso = new Date().toISOString();
@@ -1729,13 +1782,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newLog: StockHistory = {
       id: `sh-imp-${Date.now()}`,
       productId: product.id,
-      type: 'IMPORT',
+      type: 'NhapTang',
       quantityChange: qty,
       stockBefore: product.stock,
       stockAfter: nextStock,
-      supplier: params.supplier.trim(),
-      importPrice: params.importPrice,
-      reasonOrNote: params.note?.trim() || 'Nhập hàng bổ sung định kỳ',
+      supplier: params.supplier?.trim() || undefined,
+      importPrice:
+        params.importPrice !== undefined && params.importPrice > 0
+          ? params.importPrice
+          : undefined,
+      reasonOrNote: reasonNote,
       actorName: currentUser?.fullName || 'Admin',
       createdAt: nowIso,
     };
@@ -1780,7 +1836,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newLog: StockHistory = {
       id: `sh-adj-${Date.now()}`,
       productId: product.id,
-      type: 'ADJUST_DECREASE',
+      type: 'DieuChinhGiam',
       quantityChange: -qty,
       stockBefore: product.stock,
       stockAfter: nextStock,
@@ -1811,7 +1867,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Admin: Quản lý Mã giảm giá
   const createVoucher = (input: {
     code: string;
-    description: string;
+    description?: string;
     discountType: DiscountType;
     discountValue: number;
     maxDiscountAmount?: number;
@@ -1819,11 +1875,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     startDate: string;
     endDate: string;
     usageLimit: number;
+    isActive?: boolean;
   }) => {
     const code = input.code.trim().toUpperCase();
-    const description = input.description.trim();
-    if (!code || !description) {
-      return { ok: false, message: 'Vui lòng nhập mã code và mô tả khuyến mãi.' };
+    const description = (input.description || '').trim();
+    if (!code) {
+      return { ok: false, message: 'Vui lòng nhập mã giảm giá.' };
     }
     if (!/^[A-Z0-9_-]{3,20}$/.test(code)) {
       return {
@@ -1837,7 +1894,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (input.discountValue <= 0) {
       return { ok: false, message: 'Giá trị giảm phải lớn hơn 0.' };
     }
-    if (input.discountType === 'PERCENT' && input.discountValue > 100) {
+    if (input.discountType === 'PhanTram' && input.discountValue > 100) {
       return { ok: false, message: 'Mức giảm theo phần trăm không được vượt quá 100%.' };
     }
     if (input.usageLimit <= 0) {
@@ -1854,7 +1911,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       discountType: input.discountType,
       discountValue: input.discountValue,
       maxDiscountAmount:
-        input.discountType === 'PERCENT' && input.maxDiscountAmount && input.maxDiscountAmount > 0
+        input.discountType === 'PhanTram' &&
+        input.maxDiscountAmount &&
+        input.maxDiscountAmount > 0
           ? input.maxDiscountAmount
           : undefined,
       minOrderValue: Math.max(0, input.minOrderValue || 0),
@@ -1862,7 +1921,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       endDate: new Date(input.endDate).toISOString(),
       usageLimit: Math.floor(input.usageLimit),
       usedCount: 0,
-      isActive: true,
+      isActive: input.isActive !== undefined ? input.isActive : true,
       createdAt: new Date().toISOString(),
     };
 
@@ -1874,7 +1933,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     id: string,
     input: {
       code: string;
-      description: string;
+      description?: string;
       discountType: DiscountType;
       discountValue: number;
       maxDiscountAmount?: number;
@@ -1897,10 +1956,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { ok: false, message: 'Ngày kết thúc phải sau ngày bắt đầu.' };
     }
 
+    // UC-49 4b: Khi mã đã được dùng, khóa code, loại giảm, mức giảm, mức giảm tối đa và đơn tối thiểu
     const isAlreadyUsed = target.usedCount > 0;
     const nextCode = isAlreadyUsed ? target.code : input.code.trim().toUpperCase();
     const nextType = isAlreadyUsed ? target.discountType : input.discountType;
     const nextValue = isAlreadyUsed ? target.discountValue : input.discountValue;
+    const nextMaxDiscount = isAlreadyUsed
+      ? target.maxDiscountAmount
+      : nextType === 'PhanTram' && input.maxDiscountAmount && input.maxDiscountAmount > 0
+        ? input.maxDiscountAmount
+        : undefined;
+    const nextMinOrder = isAlreadyUsed
+      ? target.minOrderValue
+      : Math.max(0, input.minOrderValue || 0);
 
     setVouchers((prev) =>
       prev.map((v) =>
@@ -1908,16 +1976,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? {
               ...v,
               code: nextCode,
-              description: input.description.trim() || v.description,
+              description:
+                input.description !== undefined ? input.description.trim() : v.description,
               discountType: nextType,
               discountValue: nextValue,
-              maxDiscountAmount:
-                nextType === 'PERCENT' &&
-                input.maxDiscountAmount &&
-                input.maxDiscountAmount > 0
-                  ? input.maxDiscountAmount
-                  : undefined,
-              minOrderValue: Math.max(0, input.minOrderValue || 0),
+              maxDiscountAmount: nextMaxDiscount,
+              minOrderValue: nextMinOrder,
               startDate: new Date(input.startDate).toISOString(),
               endDate: new Date(input.endDate).toISOString(),
               usageLimit: Math.floor(input.usageLimit),
@@ -1929,7 +1993,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return {
       ok: true,
       message: isAlreadyUsed
-        ? `Đã cập nhật mã "${target.code}" (giữ nguyên mã và mức giảm gốc do đã có đơn áp dụng).`
+        ? `Đã cập nhật mã "${target.code}" (giữ nguyên mã, loại giảm và điều kiện giá trị gốc do đã có đơn áp dụng).`
         : `Đã cập nhật mã giảm giá "${nextCode}".`,
     };
   };
@@ -1986,7 +2050,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               storeReply: content,
               storeReplyAt: nowIso,
               storeReplyBy: currentUser
-                ? `${currentUser.fullName} (${currentUser.role})`
+                ? `${currentUser.fullName} (${ROLE_LABELS[currentUser.role]})`
                 : 'HCShop Support',
             }
           : r
@@ -1996,6 +2060,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const adminDeleteReview = (reviewId: string, reason: string) => {
+    if (!currentUser || currentUser.role !== 'QuanLy') {
+      return { ok: false, message: 'Chỉ Quản lý mới có quyền gỡ bỏ đánh giá.' };
+    }
     if (!reason.trim()) {
       return { ok: false, message: 'Vui lòng nhập lý do gỡ bỏ đánh giá.' };
     }
@@ -2003,9 +2070,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { ok: true, message: 'Đã gỡ bỏ đánh giá vi phạm.' };
   };
 
-  // Admin: Quản lý Tài khoản & Khóa / Mở khóa
+  // Admin: Quản lý Tài khoản & Khóa / Mở khóa (UC-10 2a: chỉ khóa tài khoản Khách hàng)
   const toggleAccountLock = (userId: string, lockReason?: string) => {
-    if (currentUser?.id === userId) {
+    if (!currentUser || currentUser.role !== 'QuanLy') {
+      return { ok: false, message: 'Chỉ Quản lý mới có quyền khóa/mở khóa tài khoản.' };
+    }
+    if (currentUser.id === userId) {
       return {
         ok: false,
         message: 'Không thể tự khóa tài khoản Quản trị viên đang đăng nhập.',
@@ -2013,6 +2083,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const target = users.find((u) => u.id === userId);
     if (!target) return { ok: false, message: 'Không tìm thấy tài khoản.' };
+
+    if (target.role !== 'KhachHang') {
+      return {
+        ok: false,
+        message: 'Theo quy định UC-10, không được khóa hoặc mở khóa tài khoản Nhân viên và Quản lý.',
+      };
+    }
+
+    const nowIso = new Date().toISOString();
 
     if (!target.isLocked) {
       const reason = lockReason?.trim() || '';
@@ -2024,6 +2103,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           u.id === userId ? { ...u, isLocked: true, lockReason: reason } : u
         )
       );
+      setAccountLockHistories((prev) => [
+        {
+          id: `alh-${Date.now()}`,
+          userId,
+          action: 'LOCK',
+          reason,
+          actorName: currentUser.fullName,
+          createdAt: nowIso,
+        },
+        ...prev,
+      ]);
       return { ok: true, message: `Đã khóa tài khoản "${target.fullName}".` };
     } else {
       setUsers((prev) =>
@@ -2039,27 +2129,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : u
         )
       );
+      setAccountLockHistories((prev) => [
+        {
+          id: `alh-${Date.now()}`,
+          userId,
+          action: 'UNLOCK',
+          reason: lockReason?.trim() || 'Quản lý mở khóa tài khoản',
+          actorName: currentUser.fullName,
+          createdAt: nowIso,
+        },
+        ...prev,
+      ]);
       return { ok: true, message: `Đã mở khóa tài khoản "${target.fullName}".` };
     }
-  };
-
-  const updateAccountRole = (userId: string, newRole: UserRole) => {
-    if (currentUser?.id === userId) {
-      return {
-        ok: false,
-        message: 'Không thể tự thay đổi vai trò của tài khoản đang đăng nhập.',
-      };
-    }
-    const target = users.find((u) => u.id === userId);
-    if (!target) return { ok: false, message: 'Không tìm thấy tài khoản.' };
-
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
-    );
-    return {
-      ok: true,
-      message: `Đã cập nhật vai trò của "${target.fullName}" sang ${newRole}.`,
-    };
   };
 
   return (
@@ -2067,6 +2149,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         currentUser,
         users,
+        accountLockHistories,
         categories,
         products,
         stockHistories,
@@ -2124,7 +2207,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         replyToReview,
         adminDeleteReview,
         toggleAccountLock,
-        updateAccountRole,
       }}
     >
       {children}

@@ -15,7 +15,15 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { ShippingAddress } from '../../types/domain';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
+import {
+  VN_LOCATIONS,
+  getDistrictsByProvince,
+  getWardsByDistrict,
+  isAddressInDeliveryZone,
+} from '../../data/vnLocations';
+import { Gender, ShippingAddress } from '../../types/domain';
 
 type AccountTab = 'PROFILE' | 'ADDRESSES' | 'SECURITY';
 
@@ -43,13 +51,14 @@ export const CustomerAccountPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AccountTab>('PROFILE');
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Profile form state (UC-06)
+  // Profile form state (UC-06, ISS-03)
   const [fullName, setFullName] = useState(currentUser?.fullName || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [dob, setDob] = useState(currentUser?.dob || '2005-05-19');
-  const [gender, setGender] = useState<'Nam' | 'Nữ' | 'Khác'>(
+  const [gender, setGender] = useState<Gender>(
     currentUser?.gender || 'Nam'
   );
+  const [avatar, setAvatar] = useState(currentUser?.avatar || '');
 
   // Password form state (UC-04)
   const [currentPassword, setCurrentPassword] = useState('');
@@ -65,17 +74,34 @@ export const CustomerAccountPage: React.FC = () => {
     currentUser?.securityAnswerHash || ''
   );
 
-  // Address Modal state (UC-07)
+  // Address Modal state (UC-07, ISS-13, ISS-18)
   const [editingAddress, setEditingAddress] = useState<ShippingAddress | null>(null);
+  const [deletingAddress, setDeletingAddress] = useState<ShippingAddress | null>(null);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [addrRecipient, setAddrRecipient] = useState('');
   const [addrPhone, setAddrPhone] = useState('');
   const [addrProvince, setAddrProvince] = useState('Hà Nội');
-  const [addrDistrict, setAddrDistrict] = useState('');
-  const [addrWard, setAddrWard] = useState('');
+  const [addrDistrict, setAddrDistrict] = useState('Quận Hoàn Kiếm');
+  const [addrWard, setAddrWard] = useState('Phường Tràng Tiền');
   const [addrDetail, setAddrDetail] = useState('');
   const [addrIsDefault, setAddrIsDefault] = useState(false);
-  const [addrOutOfZone, setAddrOutOfZone] = useState(false);
+
+  const availableDistricts = getDistrictsByProvince(addrProvince);
+  const availableWards = getWardsByDistrict(addrProvince, addrDistrict);
+
+  const handleAddrProvinceChange = (nextProvince: string) => {
+    setAddrProvince(nextProvince);
+    const districts = getDistrictsByProvince(nextProvince);
+    const firstDist = districts[0]?.name || '';
+    setAddrDistrict(firstDist);
+    setAddrWard(districts[0]?.wards[0] || '');
+  };
+
+  const handleAddrDistrictChange = (nextDistrict: string) => {
+    setAddrDistrict(nextDistrict);
+    const wards = getWardsByDistrict(addrProvince, nextDistrict);
+    setAddrWard(wards[0] || '');
+  };
 
   useEffect(() => {
     if (currentUser) {
@@ -83,6 +109,7 @@ export const CustomerAccountPage: React.FC = () => {
       setPhone(currentUser.phone);
       setDob(currentUser.dob || '2005-05-19');
       setGender(currentUser.gender || 'Nam');
+      setAvatar(currentUser.avatar || '');
       setSecQuestion(currentUser.securityQuestion || PRESET_QUESTIONS[0]);
       setSecAnswer(currentUser.securityAnswerHash || '');
     }
@@ -117,11 +144,10 @@ export const CustomerAccountPage: React.FC = () => {
     setAddrRecipient(currentUser.fullName);
     setAddrPhone(currentUser.phone);
     setAddrProvince('Hà Nội');
-    setAddrDistrict('Quận Hai Bà Trưng');
-    setAddrWard('Phường Đồng Tâm');
+    setAddrDistrict('Quận Hoàn Kiếm');
+    setAddrWard('Phường Tràng Tiền');
     setAddrDetail('');
     setAddrIsDefault(userAddresses.length === 0);
-    setAddrOutOfZone(false);
     setShowAddressModal(true);
   };
 
@@ -134,7 +160,6 @@ export const CustomerAccountPage: React.FC = () => {
     setAddrWard(addr.ward);
     setAddrDetail(addr.detailAddress);
     setAddrIsDefault(addr.isDefault);
-    setAddrOutOfZone(Boolean(addr.isOutOfDeliveryZone));
     setShowAddressModal(true);
   };
 
@@ -148,7 +173,6 @@ export const CustomerAccountPage: React.FC = () => {
       ward: addrWard,
       detailAddress: addrDetail,
       isDefault: addrIsDefault,
-      isOutOfDeliveryZone: addrOutOfZone,
     };
 
     const res = editingAddress
@@ -163,7 +187,13 @@ export const CustomerAccountPage: React.FC = () => {
 
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = updateProfile({ fullName, phone, dob, gender });
+    const res = updateProfile({
+      fullName,
+      phone,
+      dob,
+      gender,
+      avatar: avatar || undefined,
+    });
     setFeedback({ ok: res.ok, text: res.message });
   };
 
@@ -253,7 +283,15 @@ export const CustomerAccountPage: React.FC = () => {
         {/* Left Navigation Card */}
         <div className="md:col-span-4 bg-white rounded-3xl border border-zinc-200/80 p-5 space-y-5">
           <div className="flex items-center gap-3.5 pb-4 border-b border-zinc-100">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-500 via-indigo-400 to-purple-300 shrink-0" />
+            {currentUser.avatar ? (
+              <img
+                src={currentUser.avatar}
+                alt={currentUser.fullName}
+                className="w-12 h-12 rounded-full object-cover border border-zinc-200 shrink-0"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-500 via-indigo-400 to-purple-300 shrink-0" />
+            )}
             <div className="min-w-0">
               <div className="text-[15px] font-bold text-zinc-900 truncate">
                 {currentUser.fullName}
@@ -346,6 +384,14 @@ export const CustomerAccountPage: React.FC = () => {
                 </p>
               </div>
 
+              <ImageUploadField
+                label="Ảnh đại diện (Avatar)"
+                value={avatar}
+                onChange={setAvatar}
+                previewShape="circle"
+                helperText="Chấp nhận ảnh .JPG, .PNG, .WEBP (tối đa 5MB)"
+              />
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[12px] font-semibold text-zinc-700 mb-1.5">
@@ -401,18 +447,24 @@ export const CustomerAccountPage: React.FC = () => {
                   Giới tính
                 </label>
                 <div className="flex items-center gap-3">
-                  {(['Nam', 'Nữ', 'Khác'] as const).map((g) => (
+                  {(
+                    [
+                      { value: 'Nam', label: 'Nam' },
+                      { value: 'Nu', label: 'Nữ' },
+                      { value: 'Khac', label: 'Khác' },
+                    ] as const
+                  ).map((g) => (
                     <button
-                      key={g}
+                      key={g.value}
                       type="button"
-                      onClick={() => setGender(g)}
+                      onClick={() => setGender(g.value)}
                       className={`px-4 py-2 rounded-full text-[13px] font-medium border transition-colors ${
-                        gender === g
+                        gender === g.value
                           ? 'bg-zinc-900 text-white border-zinc-900'
                           : 'bg-[#f8f9fa] text-zinc-700 border-zinc-200/80 hover:border-zinc-400'
                       }`}
                     >
-                      {g}
+                      {g.label}
                     </button>
                   ))}
                 </div>
@@ -485,7 +537,7 @@ export const CustomerAccountPage: React.FC = () => {
                               Mặc định
                             </span>
                           )}
-                          {addr.isOutOfDeliveryZone && (
+                          {!isAddressInDeliveryZone(addr.province, addr.district) && (
                             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800">
                               Ngoài vùng giao
                             </span>
@@ -519,10 +571,7 @@ export const CustomerAccountPage: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            const res = deleteShippingAddress(addr.id);
-                            setFeedback({ ok: res.ok, text: res.message });
-                          }}
+                          onClick={() => setDeletingAddress(addr)}
                           className="p-2 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600"
                           title="Xóa địa chỉ"
                         >
@@ -737,36 +786,58 @@ export const CustomerAccountPage: React.FC = () => {
                 <label className="block text-[12px] font-semibold text-zinc-700 mb-1">
                   Tỉnh / Thành phố *
                 </label>
-                <input
-                  type="text"
+                <select
                   value={addrProvince}
-                  onChange={(e) => setAddrProvince(e.target.value)}
+                  onChange={(e) => handleAddrProvinceChange(e.target.value)}
                   className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-[13px]"
-                />
+                >
+                  {VN_LOCATIONS.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-zinc-700 mb-1">
                   Quận / Huyện *
                 </label>
-                <input
-                  type="text"
+                <select
                   value={addrDistrict}
-                  onChange={(e) => setAddrDistrict(e.target.value)}
+                  onChange={(e) => handleAddrDistrictChange(e.target.value)}
                   className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-[13px]"
-                />
+                >
+                  {availableDistricts.map((d) => (
+                    <option key={d.name} value={d.name}>
+                      {d.name}
+                      {!d.inDeliveryZone ? ' (Ngoài vùng giao)' : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-[12px] font-semibold text-zinc-700 mb-1">
                   Phường / Xã *
                 </label>
-                <input
-                  type="text"
+                <select
                   value={addrWard}
                   onChange={(e) => setAddrWard(e.target.value)}
                   className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-[13px]"
-                />
+                >
+                  {availableWards.map((w) => (
+                    <option key={w} value={w}>
+                      {w}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
+
+            {!isAddressInDeliveryZone(addrProvince, addrDistrict) && (
+              <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200/70 px-3 py-2 rounded-xl">
+                Lưu ý: Khu vực này hiện nằm ngoài vùng giao hàng hỗ trợ của HCShop.
+              </p>
+            )}
 
             <div>
               <label className="block text-[12px] font-semibold text-zinc-700 mb-1">
@@ -791,16 +862,6 @@ export const CustomerAccountPage: React.FC = () => {
                 />
                 <span>Đặt làm địa chỉ nhận hàng mặc định</span>
               </label>
-
-              <label className="flex items-center gap-2 text-[12px] text-amber-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={addrOutOfZone}
-                  onChange={(e) => setAddrOutOfZone(e.target.checked)}
-                  className="rounded border-amber-300"
-                />
-                <span>Đánh dấu địa chỉ ngoài vùng giao hàng</span>
-              </label>
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -821,6 +882,27 @@ export const CustomerAccountPage: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Confirm Delete Address Modal (UC-07, ISS-13) */}
+      <ConfirmModal
+        open={Boolean(deletingAddress)}
+        title="Xóa địa chỉ nhận hàng?"
+        description={
+          deletingAddress
+            ? `Bạn có chắc muốn xóa địa chỉ "${deletingAddress.detailAddress}, ${deletingAddress.ward}, ${deletingAddress.district}, ${deletingAddress.province}" khỏi sổ địa chỉ không?`
+            : ''
+        }
+        confirmLabel="Xóa địa chỉ"
+        variant="danger"
+        onCancel={() => setDeletingAddress(null)}
+        onConfirm={() => {
+          if (deletingAddress) {
+            const res = deleteShippingAddress(deletingAddress.id);
+            setFeedback({ ok: res.ok, text: res.message });
+            setDeletingAddress(null);
+          }
+        }}
+      />
     </div>
   );
 };

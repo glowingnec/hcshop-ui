@@ -12,6 +12,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { Order, OrderStatus } from '../../types/domain';
 import {
   formatVND,
@@ -22,12 +23,12 @@ import {
 
 const STATUS_TABS: { id: 'ALL' | OrderStatus; label: string }[] = [
   { id: 'ALL', label: 'Tất cả' },
-  { id: 'PENDING', label: 'Chờ duyệt' },
-  { id: 'CONFIRMED', label: 'Đã xác nhận' },
-  { id: 'PREPARING', label: 'Chuẩn bị hàng' },
-  { id: 'SHIPPING', label: 'Đang giao' },
-  { id: 'COMPLETED', label: 'Hoàn thành' },
-  { id: 'CANCELLED', label: 'Đã hủy' },
+  { id: 'ChoXacNhan', label: 'Chờ xác nhận' },
+  { id: 'DaXacNhan', label: 'Đã xác nhận' },
+  { id: 'DangChuanBi', label: 'Đang chuẩn bị' },
+  { id: 'DangGiao', label: 'Đang giao' },
+  { id: 'HoanThanh', label: 'Hoàn thành' },
+  { id: 'DaHuy', label: 'Đã hủy' },
 ];
 
 const NEXT_STEP_CONFIG: Partial<
@@ -36,18 +37,18 @@ const NEXT_STEP_CONFIG: Partial<
     { nextStatus: OrderStatus; buttonLabel: string; defaultNote: string }
   >
 > = {
-  CONFIRMED: {
-    nextStatus: 'PREPARING',
+  DaXacNhan: {
+    nextStatus: 'DangChuanBi',
     buttonLabel: 'Bắt đầu đóng gói',
     defaultNote: 'Kho đang đóng gói sản phẩm và chuẩn bị bàn giao vận chuyển',
   },
-  PREPARING: {
-    nextStatus: 'SHIPPING',
+  DangChuanBi: {
+    nextStatus: 'DangGiao',
     buttonLabel: 'Bàn giao vận chuyển',
     defaultNote: 'Đã bàn giao cho đơn vị vận chuyển, đang trên đường giao',
   },
-  SHIPPING: {
-    nextStatus: 'COMPLETED',
+  DangGiao: {
+    nextStatus: 'HoanThanh',
     buttonLabel: 'Xác nhận giao thành công',
     defaultNote: 'Khách hàng đã nhận hàng và thanh toán đầy đủ',
   },
@@ -70,26 +71,36 @@ export const OrderManagementPage: React.FC = () => {
 
   const [statusFilter, setStatusFilter] = useState<'ALL' | OrderStatus>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [orderDateFrom, setOrderDateFrom] = useState('');
+  const [orderDateTo, setOrderDateTo] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [statusNote, setStatusNote] = useState('');
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Reject Modal state
+  const pageSize = 8;
+
+  // Reject / Cancel Modal state (UC-43, UC-44, ISS-06)
   const [rejectingOrder, setRejectingOrder] = useState<Order | null>(null);
   const [rejectPreset, setRejectPreset] = useState(REJECT_PRESETS[0]);
   const [rejectCustom, setRejectCustom] = useState('');
 
+  const dateRangeError =
+    orderDateFrom && orderDateTo && orderDateFrom > orderDateTo
+      ? 'Ngày bắt đầu không được lớn hơn ngày kết thúc.'
+      : null;
+
   const kpis = useMemo(() => {
-    const pending = orders.filter((o) => o.status === 'PENDING').length;
+    const pending = orders.filter((o) => o.status === 'ChoXacNhan').length;
     const processing = orders.filter(
       (o) =>
-        o.status === 'CONFIRMED' ||
-        o.status === 'PREPARING' ||
-        o.status === 'SHIPPING'
+        o.status === 'DaXacNhan' ||
+        o.status === 'DangChuanBi' ||
+        o.status === 'DangGiao'
     ).length;
-    const completed = orders.filter((o) => o.status === 'COMPLETED').length;
+    const completed = orders.filter((o) => o.status === 'HoanThanh').length;
     const revenue = orders
-      .filter((o) => o.status === 'COMPLETED')
+      .filter((o) => o.status === 'HoanThanh')
       .reduce((sum, o) => sum + o.totalAmount, 0);
     return { pending, processing, completed, revenue };
   }, [orders]);
@@ -98,6 +109,11 @@ export const OrderManagementPage: React.FC = () => {
     return orders.filter((order) => {
       if (statusFilter !== 'ALL' && order.status !== statusFilter) {
         return false;
+      }
+      if (!dateRangeError) {
+        const orderDay = order.createdAt.slice(0, 10);
+        if (orderDateFrom && orderDay < orderDateFrom) return false;
+        if (orderDateTo && orderDay > orderDateTo) return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -109,15 +125,20 @@ export const OrderManagementPage: React.FC = () => {
       }
       return true;
     });
-  }, [orders, statusFilter, searchQuery]);
+  }, [orders, statusFilter, searchQuery, orderDateFrom, orderDateTo, dateRangeError]);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredOrders.slice(start, start + pageSize);
+  }, [filteredOrders, currentPage]);
 
   const activeOrder = useMemo(() => {
     if (selectedOrderId) {
       const found = orders.find((o) => o.id === selectedOrderId);
       if (found) return found;
     }
-    return filteredOrders[0] || null;
-  }, [orders, filteredOrders, selectedOrderId]);
+    return paginatedOrders[0] || filteredOrders[0] || null;
+  }, [orders, paginatedOrders, filteredOrders, selectedOrderId]);
 
   const handleConfirmOrder = (orderId: string) => {
     const res = staffConfirmOrRejectOrder(
@@ -235,18 +256,65 @@ export const OrderManagementPage: React.FC = () => {
         </div>
       )}
 
-      {/* Filter & Search Bar */}
+      {/* Filter & Search Bar (ISS-12) */}
       <div className="bg-white rounded-2xl border border-zinc-200/80 p-3.5 space-y-3">
-        <div className="relative max-w-md">
-          <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm theo mã đơn, tên khách hàng hoặc SĐT..."
-            className="w-full h-9 pl-9 pr-4 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
-          />
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm theo mã đơn, tên khách hàng hoặc SĐT..."
+              className="w-full h-9 pl-9 pr-4 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-zinc-500">Ngày đặt:</span>
+            <input
+              type="date"
+              value={orderDateFrom}
+              onChange={(e) => {
+                setOrderDateFrom(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Từ ngày"
+              className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+            />
+            <span className="text-zinc-400">–</span>
+            <input
+              type="date"
+              value={orderDateTo}
+              onChange={(e) => {
+                setOrderDateTo(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Đến ngày"
+              className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+            />
+            {(orderDateFrom || orderDateTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOrderDateFrom('');
+                  setOrderDateTo('');
+                  setCurrentPage(1);
+                }}
+                className="h-8 px-3 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-medium"
+              >
+                Xóa ngày
+              </button>
+            )}
+          </div>
         </div>
+
+        {dateRangeError && (
+          <p className="text-xs text-rose-600">{dateRangeError}</p>
+        )}
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
           {STATUS_TABS.map((tab) => {
@@ -259,7 +327,10 @@ export const OrderManagementPage: React.FC = () => {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setStatusFilter(tab.id)}
+                onClick={() => {
+                  setStatusFilter(tab.id);
+                  setCurrentPage(1);
+                }}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-zinc-900 text-white'
@@ -276,59 +347,69 @@ export const OrderManagementPage: React.FC = () => {
       {/* Split View: Order List (Left) & Order Detail Workspace (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Left List */}
-        <div className="lg:col-span-5 bg-white rounded-2xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
-          {filteredOrders.length === 0 ? (
-            <div className="p-10 text-center text-xs text-zinc-400">
-              Không tìm thấy đơn hàng nào khớp bộ lọc.
-            </div>
-          ) : (
-            filteredOrders.map((order) => {
-              const meta = ORDER_STATUS_META[order.status];
-              const isSelected = activeOrder?.id === order.id;
+        <div className="lg:col-span-5 space-y-3">
+          <div className="bg-white rounded-2xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
+            {filteredOrders.length === 0 ? (
+              <div className="p-10 text-center text-xs text-zinc-400">
+                Không tìm thấy đơn hàng nào khớp bộ lọc.
+              </div>
+            ) : (
+              paginatedOrders.map((order) => {
+                const meta = ORDER_STATUS_META[order.status];
+                const isSelected = activeOrder?.id === order.id;
 
-              return (
-                <button
-                  key={order.id}
-                  type="button"
-                  onClick={() => setSelectedOrderId(order.id)}
-                  className={`w-full text-left p-4 transition-colors flex flex-col gap-2 ${
-                    isSelected ? 'bg-[#f1f5f9]/90' : 'hover:bg-zinc-50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-zinc-900">
-                        #{order.code}
-                      </span>
-                      <span className="text-xs font-medium text-zinc-600">
-                        · {order.customerName}
+                return (
+                  <button
+                    key={order.id}
+                    type="button"
+                    onClick={() => setSelectedOrderId(order.id)}
+                    className={`w-full text-left p-4 transition-colors flex flex-col gap-2 ${
+                      isSelected ? 'bg-[#f1f5f9]/90' : 'hover:bg-zinc-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-zinc-900">
+                          #{order.code}
+                        </span>
+                        <span className="text-xs font-medium text-zinc-600">
+                          · {order.customerName}
+                        </span>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${meta.badgeClass}`}
+                      >
+                        {meta.label}
                       </span>
                     </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${meta.badgeClass}`}
-                    >
-                      {meta.label}
-                    </span>
-                  </div>
 
-                  <div className="flex items-center justify-between text-xs text-zinc-500">
-                    <span className="truncate max-w-[200px]">
-                      {order.items[0]?.productName}
-                      {order.items.length > 1 ? ` +${order.items.length - 1}` : ''}
-                    </span>
-                    <span className="font-semibold text-zinc-900">
-                      {formatVND(order.totalAmount)}
-                    </span>
-                  </div>
+                    <div className="flex items-center justify-between text-xs text-zinc-500">
+                      <span className="truncate max-w-[200px]">
+                        {order.items[0]?.productName}
+                        {order.items.length > 1 ? ` +${order.items.length - 1}` : ''}
+                      </span>
+                      <span className="font-semibold text-zinc-900">
+                        {formatVND(order.totalAmount)}
+                      </span>
+                    </div>
 
-                  <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                    <span>{formatDateTime(order.createdAt)}</span>
-                    <span>{order.shippingAddress.phone}</span>
-                  </div>
-                </button>
-              );
-            })
-          )}
+                    <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                      <span>{formatDateTime(order.createdAt)}</span>
+                      <span>{order.shippingAddress.phone}</span>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <PaginationBar
+            currentPage={currentPage}
+            totalItems={filteredOrders.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="đơn hàng"
+          />
         </div>
 
         {/* Right Detail Workspace */}
@@ -360,9 +441,9 @@ export const OrderManagementPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* Action Controls by Status */}
+                {/* Action Controls by Status (UC-43, UC-44, ISS-06) */}
                 <div className="flex flex-wrap items-center gap-2">
-                  {activeOrder.status === 'PENDING' && (
+                  {activeOrder.status === 'ChoXacNhan' && (
                     <>
                       <button
                         type="button"
@@ -370,7 +451,7 @@ export const OrderManagementPage: React.FC = () => {
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors"
                       >
                         <XCircle className="w-3.5 h-3.5" />
-                        Từ chối đơn
+                        Từ chối / Hủy đơn
                       </button>
                       <button
                         type="button"
@@ -381,6 +462,17 @@ export const OrderManagementPage: React.FC = () => {
                         Xác nhận đơn
                       </button>
                     </>
+                  )}
+
+                  {activeOrder.status === 'DaXacNhan' && (
+                    <button
+                      type="button"
+                      onClick={() => setRejectingOrder(activeOrder)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-colors"
+                    >
+                      <XCircle className="w-3.5 h-3.5" />
+                      Hủy đơn hàng
+                    </button>
                   )}
 
                   {NEXT_STEP_CONFIG[activeOrder.status] && (
@@ -402,7 +494,7 @@ export const OrderManagementPage: React.FC = () => {
               </div>
 
               {/* Optional note input when order is active */}
-              {(activeOrder.status === 'PENDING' ||
+              {(activeOrder.status === 'ChoXacNhan' ||
                 NEXT_STEP_CONFIG[activeOrder.status]) && (
                 <div className="bg-[#f8f9fa] rounded-xl p-3 border border-zinc-200/60 flex items-center gap-2">
                   <input
@@ -415,7 +507,7 @@ export const OrderManagementPage: React.FC = () => {
                 </div>
               )}
 
-              {activeOrder.status === 'CANCELLED' && (
+              {activeOrder.status === 'DaHuy' && (
                 <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200/80 flex items-start gap-2.5 text-xs text-rose-900">
                   <RotateCcw className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                   <div>

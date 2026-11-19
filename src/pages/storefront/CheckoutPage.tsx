@@ -13,6 +13,12 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import {
+  VN_LOCATIONS,
+  getDistrictsByProvince,
+  getWardsByDistrict,
+  isAddressInDeliveryZone,
+} from '../../data/vnLocations';
 import { Order, PaymentMethod } from '../../types/domain';
 import { formatVND } from '../../utils/formatters';
 
@@ -40,7 +46,7 @@ export const CheckoutPage: React.FC = () => {
   const [selectedAddressId, setSelectedAddressId] = useState<string>(
     defaultAddr?.id || ''
   );
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('COD');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('KhiNhanHang');
 
   // Voucher state (UC-35)
   const [voucherInput, setVoucherInput] = useState(initialVoucher);
@@ -52,15 +58,38 @@ export const CheckoutPage: React.FC = () => {
     text: string;
   } | null>(null);
 
-  // Add New Address inline modal/form state (UC-34 3a)
+  // Add New Address inline modal/form state (UC-34 3a, ISS-18)
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [recipientName, setRecipientName] = useState(currentUser?.fullName || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [province, setProvince] = useState('Hà Nội');
-  const [district, setDistrict] = useState('');
-  const [ward, setWard] = useState('');
+  const [district, setDistrict] = useState('Quận Hoàn Kiếm');
+  const [ward, setWard] = useState('Phường Tràng Tiền');
   const [detailAddress, setDetailAddress] = useState('');
   const [addressError, setAddressError] = useState<string | null>(null);
+
+  const availableDistricts = useMemo(
+    () => getDistrictsByProvince(province),
+    [province]
+  );
+  const availableWards = useMemo(
+    () => getWardsByDistrict(province, district),
+    [province, district]
+  );
+
+  const handleProvinceChange = (nextProvince: string) => {
+    setProvince(nextProvince);
+    const districts = getDistrictsByProvince(nextProvince);
+    const firstDist = districts[0]?.name || '';
+    setDistrict(firstDist);
+    setWard(districts[0]?.wards[0] || '');
+  };
+
+  const handleDistrictChange = (nextDistrict: string) => {
+    setDistrict(nextDistrict);
+    const wards = getWardsByDistrict(province, nextDistrict);
+    setWard(wards[0] || '');
+  };
 
   // Checkout Error & Placed Order Success State (UC-37)
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -137,9 +166,9 @@ export const CheckoutPage: React.FC = () => {
           <div className="flex justify-between">
             <span className="text-zinc-500">Phương thức</span>
             <span className="font-medium text-zinc-800">
-              {placedOrder.paymentMethod === 'COD'
+              {placedOrder.paymentMethod === 'KhiNhanHang'
                 ? 'Thanh toán khi nhận hàng (COD)'
-                : placedOrder.paymentMethod === 'BANK_TRANSFER'
+                : placedOrder.paymentMethod === 'ChuyenKhoan'
                 ? 'Chuyển khoản ngân hàng'
                 : 'Ví điện tử'}
             </span>
@@ -220,7 +249,6 @@ export const CheckoutPage: React.FC = () => {
       ward,
       detailAddress,
       isDefault: userAddresses.length === 0,
-      isOutOfDeliveryZone: false,
     });
     if (!res.ok || !res.address) {
       setAddressError(res.message);
@@ -237,7 +265,7 @@ export const CheckoutPage: React.FC = () => {
     setCheckoutError(null);
     const res = placeOrder({
       addressId: selectedAddressId,
-      paymentMethod: isCodDisabled && paymentMethod === 'COD' ? 'BANK_TRANSFER' : paymentMethod,
+      paymentMethod: isCodDisabled && paymentMethod === 'KhiNhanHang' ? 'ChuyenKhoan' : paymentMethod,
       voucherCode: appliedVoucherCode,
     });
 
@@ -321,27 +349,40 @@ export const CheckoutPage: React.FC = () => {
                     onChange={(e) => setPhone(e.target.value)}
                     className="h-9 px-3 rounded-lg bg-white border border-zinc-200/80 focus:outline-none focus:border-zinc-400"
                   />
-                  <input
-                    type="text"
-                    placeholder="Tỉnh / Thành phố *"
+                  <select
                     value={province}
-                    onChange={(e) => setProvince(e.target.value)}
+                    onChange={(e) => handleProvinceChange(e.target.value)}
                     className="h-9 px-3 rounded-lg bg-white border border-zinc-200/80 focus:outline-none focus:border-zinc-400"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Quận / Huyện *"
+                  >
+                    {VN_LOCATIONS.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     value={district}
-                    onChange={(e) => setDistrict(e.target.value)}
+                    onChange={(e) => handleDistrictChange(e.target.value)}
                     className="h-9 px-3 rounded-lg bg-white border border-zinc-200/80 focus:outline-none focus:border-zinc-400"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Phường / Xã *"
+                  >
+                    {availableDistricts.map((d) => (
+                      <option key={d.name} value={d.name}>
+                        {d.name}
+                        {!d.inDeliveryZone ? ' (Ngoài vùng giao)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     value={ward}
                     onChange={(e) => setWard(e.target.value)}
                     className="h-9 px-3 rounded-lg bg-white border border-zinc-200/80 focus:outline-none focus:border-zinc-400"
-                  />
+                  >
+                    {availableWards.map((w) => (
+                      <option key={w} value={w}>
+                        {w}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="text"
                     placeholder="Số nhà, tên đường *"
@@ -350,6 +391,11 @@ export const CheckoutPage: React.FC = () => {
                     className="h-9 px-3 rounded-lg bg-white border border-zinc-200/80 focus:outline-none focus:border-zinc-400"
                   />
                 </div>
+                {!isAddressInDeliveryZone(province, district) && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200/70 px-3 py-1.5 rounded-lg">
+                    Lưu ý: Khu vực này hiện nằm ngoài vùng giao hàng hỗ trợ của HCShop.
+                  </p>
+                )}
                 {addressError && (
                   <p className="text-rose-500 text-[11px]">{addressError}</p>
                 )}
@@ -400,7 +446,7 @@ export const CheckoutPage: React.FC = () => {
                       <p className="text-zinc-500">
                         {addr.detailAddress}, {addr.ward}, {addr.district}, {addr.province}
                       </p>
-                      {addr.isOutOfDeliveryZone && (
+                      {!isAddressInDeliveryZone(addr.province, addr.district) && (
                         <p className="text-[11px] text-rose-500 font-medium pt-0.5">
                           Địa chỉ này nằm ngoài khu vực hỗ trợ giao hàng.
                         </p>
@@ -512,11 +558,11 @@ export const CheckoutPage: React.FC = () => {
             <div className="space-y-2.5 text-xs">
               {/* Option 1: COD */}
               <div
-                onClick={() => !isCodDisabled && setPaymentMethod('COD')}
+                onClick={() => !isCodDisabled && setPaymentMethod('KhiNhanHang')}
                 className={`p-3.5 rounded-xl border flex items-center justify-between transition-colors ${
                   isCodDisabled
                     ? 'border-zinc-200/50 bg-zinc-50 opacity-60 cursor-not-allowed'
-                    : paymentMethod === 'COD'
+                    : paymentMethod === 'KhiNhanHang'
                     ? 'border-zinc-900 bg-zinc-50/60 cursor-pointer'
                     : 'border-zinc-200/70 hover:border-zinc-300 cursor-pointer'
                 }`}
@@ -533,12 +579,12 @@ export const CheckoutPage: React.FC = () => {
                 </div>
                 <div
                   className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    paymentMethod === 'COD' && !isCodDisabled
+                    paymentMethod === 'KhiNhanHang' && !isCodDisabled
                       ? 'border-zinc-900 bg-zinc-900 text-white'
                       : 'border-zinc-300'
                   }`}
                 >
-                  {paymentMethod === 'COD' && !isCodDisabled && (
+                  {paymentMethod === 'KhiNhanHang' && !isCodDisabled && (
                     <Check className="w-2.5 h-2.5" />
                   )}
                 </div>
@@ -546,9 +592,9 @@ export const CheckoutPage: React.FC = () => {
 
               {/* Option 2: Bank Transfer */}
               <div
-                onClick={() => setPaymentMethod('BANK_TRANSFER')}
+                onClick={() => setPaymentMethod('ChuyenKhoan')}
                 className={`p-3.5 rounded-xl border cursor-pointer transition-colors space-y-2 ${
-                  paymentMethod === 'BANK_TRANSFER'
+                  paymentMethod === 'ChuyenKhoan'
                     ? 'border-zinc-900 bg-zinc-50/60'
                     : 'border-zinc-200/70 hover:border-zinc-300'
                 }`}
@@ -564,18 +610,18 @@ export const CheckoutPage: React.FC = () => {
                   </div>
                   <div
                     className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                      paymentMethod === 'BANK_TRANSFER'
+                      paymentMethod === 'ChuyenKhoan'
                         ? 'border-zinc-900 bg-zinc-900 text-white'
                         : 'border-zinc-300'
                     }`}
                   >
-                    {paymentMethod === 'BANK_TRANSFER' && (
+                    {paymentMethod === 'ChuyenKhoan' && (
                       <Check className="w-2.5 h-2.5" />
                     )}
                   </div>
                 </div>
 
-                {paymentMethod === 'BANK_TRANSFER' && (
+                {paymentMethod === 'ChuyenKhoan' && (
                   <div className="p-3 rounded-lg bg-white border border-zinc-200/70 text-[11px] text-zinc-600 space-y-1">
                     <p>
                       Ngân hàng: <strong className="text-zinc-900">Vietcombank</strong> · STK:{' '}
@@ -591,9 +637,9 @@ export const CheckoutPage: React.FC = () => {
 
               {/* Option 3: E-Wallet */}
               <div
-                onClick={() => setPaymentMethod('EWALLET')}
+                onClick={() => setPaymentMethod('ViDienTu')}
                 className={`p-3.5 rounded-xl border cursor-pointer flex items-center justify-between transition-colors ${
-                  paymentMethod === 'EWALLET'
+                  paymentMethod === 'ViDienTu'
                     ? 'border-zinc-900 bg-zinc-50/60'
                     : 'border-zinc-200/70 hover:border-zinc-300'
                 }`}
@@ -611,12 +657,12 @@ export const CheckoutPage: React.FC = () => {
                 </div>
                 <div
                   className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    paymentMethod === 'EWALLET'
+                    paymentMethod === 'ViDienTu'
                       ? 'border-zinc-900 bg-zinc-900 text-white'
                       : 'border-zinc-300'
                   }`}
                 >
-                  {paymentMethod === 'EWALLET' && <Check className="w-2.5 h-2.5" />}
+                  {paymentMethod === 'ViDienTu' && <Check className="w-2.5 h-2.5" />}
                 </div>
               </div>
             </div>
@@ -685,10 +731,21 @@ export const CheckoutPage: React.FC = () => {
 
           <button
             type="button"
-            disabled={Boolean(selectedAddressObj?.isOutOfDeliveryZone)}
+            disabled={
+              selectedAddressObj
+                ? !isAddressInDeliveryZone(
+                    selectedAddressObj.province,
+                    selectedAddressObj.district
+                  )
+                : false
+            }
             onClick={handleConfirmOrder}
             className={`w-full h-10 rounded-full text-xs font-semibold transition-colors ${
-              selectedAddressObj?.isOutOfDeliveryZone
+              selectedAddressObj &&
+              !isAddressInDeliveryZone(
+                selectedAddressObj.province,
+                selectedAddressObj.district
+              )
                 ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-white'
             }`}

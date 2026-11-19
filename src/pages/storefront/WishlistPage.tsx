@@ -24,18 +24,31 @@ export const WishlistPage: React.FC = () => {
 
   const handleMoveAllToCart = () => {
     let addedCount = 0;
+    let cappedCount = 0;
+    let skippedCount = 0;
+
     wishlistProducts.forEach((p) => {
-      if (p.isVisible && !p.isDeleted && p.stock > 0) {
-        addToCart(p.id, 1);
+      const res = addToCart(p.id, 1);
+      if (!res.ok) {
+        skippedCount += 1;
+      } else if (res.message.includes('vượt tồn kho')) {
+        cappedCount += 1;
+      } else {
         addedCount += 1;
       }
     });
-    if (addedCount > 0) {
-      setBannerMessage(`Đã thêm ${addedCount} sản phẩm sẵn hàng vào giỏ hàng!`);
-    } else {
-      setBannerMessage('Không có sản phẩm nào đủ điều kiện thêm vào giỏ.');
-    }
-    setTimeout(() => setBannerMessage(null), 3000);
+
+    const parts: string[] = [];
+    if (addedCount > 0) parts.push(`đã thêm ${addedCount} sản phẩm vào giỏ`);
+    if (cappedCount > 0) parts.push(`${cappedCount} sản phẩm đạt tối đa tồn kho`);
+    if (skippedCount > 0) parts.push(`bỏ qua ${skippedCount} sản phẩm hết hàng / ngừng kinh doanh`);
+
+    setBannerMessage(
+      parts.length > 0
+        ? `Kết quả: ${parts.join(', ')}.`
+        : 'Không có sản phẩm nào đủ điều kiện thêm vào giỏ.'
+    );
+    setTimeout(() => setBannerMessage(null), 4000);
   };
 
   return (
@@ -158,11 +171,6 @@ export const WishlistPage: React.FC = () => {
                       <div className="text-[14px] font-bold text-zinc-900 leading-tight">
                         {formatVND(product.price)}
                       </div>
-                      {product.originalPrice && product.originalPrice > product.price && (
-                        <div className="text-[11px] text-zinc-400 line-through mt-0.5">
-                          {formatVND(product.originalPrice)}
-                        </div>
-                      )}
                     </div>
 
                     <button

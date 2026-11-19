@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpDown, Heart, Plus, RotateCcw } from 'lucide-react';
+import { AlertCircle, ArrowUpDown, Heart, Plus, RotateCcw } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { formatVND } from '../../utils/formatters';
 
 type SortOption = 'DEFAULT' | 'PRICE_ASC' | 'PRICE_DESC' | 'STOCK_DESC';
@@ -23,18 +24,38 @@ export const CatalogPage: React.FC = () => {
   const navigate = useNavigate();
   const [sortBy, setSortBy] = useState<SortOption>('DEFAULT');
   const [onlyInStock, setOnlyInStock] = useState(false);
+  const [minPrice, setMinPrice] = useState('');
+  const [maxPrice, setMaxPrice] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const pageSize = 8;
 
+  const minPriceNum = minPrice.trim() !== '' ? Number(minPrice) : null;
+  const maxPriceNum = maxPrice.trim() !== '' ? Number(maxPrice) : null;
+  const priceRangeError =
+    minPriceNum !== null &&
+    maxPriceNum !== null &&
+    !Number.isNaN(minPriceNum) &&
+    !Number.isNaN(maxPriceNum) &&
+    minPriceNum > maxPriceNum
+      ? 'Giá tối thiểu không được lớn hơn giá tối đa.'
+      : null;
+
   const filteredProducts = useMemo(() => {
+    if (priceRangeError) return [];
     const list = products.filter((p) => {
       if (!p.isVisible || p.isDeleted) return false;
       if (selectedCategoryId !== 'ALL' && p.categoryId !== selectedCategoryId) {
         return false;
       }
       if (onlyInStock && p.stock <= 0) return false;
+      if (minPriceNum !== null && !Number.isNaN(minPriceNum) && p.price < minPriceNum) {
+        return false;
+      }
+      if (maxPriceNum !== null && !Number.isNaN(maxPriceNum) && p.price > maxPriceNum) {
+        return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         return (
@@ -56,9 +77,17 @@ export const CatalogPage: React.FC = () => {
       return [...list].sort((a, b) => b.stock - a.stock);
     }
     return list;
-  }, [products, selectedCategoryId, onlyInStock, searchQuery, sortBy]);
+  }, [
+    products,
+    selectedCategoryId,
+    onlyInStock,
+    minPriceNum,
+    maxPriceNum,
+    priceRangeError,
+    searchQuery,
+    sortBy,
+  ]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
   const paginatedProducts = filteredProducts.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
@@ -87,9 +116,18 @@ export const CatalogPage: React.FC = () => {
     setSelectedCategoryId('ALL');
     setSearchQuery('');
     setOnlyInStock(false);
+    setMinPrice('');
+    setMaxPrice('');
     setSortBy('DEFAULT');
     setCurrentPage(1);
   };
+
+  const hasActiveFilters =
+    selectedCategoryId !== 'ALL' ||
+    Boolean(searchQuery.trim()) ||
+    onlyInStock ||
+    Boolean(minPrice.trim()) ||
+    Boolean(maxPrice.trim());
 
   return (
     <div className="space-y-6">
@@ -101,61 +139,101 @@ export const CatalogPage: React.FC = () => {
       )}
 
       {/* Heading + Minimal Filter/Sort Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[28px] font-bold text-zinc-900 tracking-tight leading-tight">
-            Xin chào, {currentUser ? currentUser.fullName : 'User'}
-          </h1>
-          <div className="flex items-center gap-2 mt-0.5">
-            <p className="text-sm text-zinc-500">
-              {selectedCategory ? selectedCategory.name : 'Danh sách sản phẩm'}
-            </p>
-            {(selectedCategoryId !== 'ALL' || searchQuery.trim() || onlyInStock) && (
-              <button
-                onClick={handleClearFilters}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline ml-1"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Xóa bộ lọc</span>
-              </button>
-            )}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-[28px] font-bold text-zinc-900 tracking-tight leading-tight">
+              Xin chào, {currentUser ? currentUser.fullName : 'User'}
+            </h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-sm text-zinc-500">
+                {selectedCategory ? selectedCategory.name : 'Danh sách sản phẩm'}
+              </p>
+              {hasActiveFilters && (
+                <button
+                  onClick={handleClearFilters}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline ml-1"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Xóa bộ lọc</span>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Minimal Sort & In-Stock Filter Pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => {
-              setOnlyInStock((prev) => !prev);
-              setCurrentPage(1);
-            }}
-            className={`h-8 px-3 rounded-full text-xs font-medium border transition-colors ${
-              onlyInStock
-                ? 'bg-zinc-900 text-white border-zinc-900'
-                : 'bg-white text-zinc-600 border-zinc-200/80 hover:bg-zinc-100'
-            }`}
-          >
-            Còn hàng
-          </button>
+          {/* Minimal Sort, Price Range (UC-17) & In-Stock Filter Pills */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-1.5 bg-white border border-zinc-200/80 rounded-full px-3 h-8 text-xs">
+              <span className="text-zinc-400">Giá:</span>
+              <input
+                type="number"
+                min={0}
+                step={100000}
+                value={minPrice}
+                onChange={(e) => {
+                  setMinPrice(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Từ (đ)"
+                aria-label="Giá từ"
+                className="w-20 bg-transparent text-zinc-800 placeholder:text-zinc-400 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <span className="text-zinc-300">–</span>
+              <input
+                type="number"
+                min={0}
+                step={100000}
+                value={maxPrice}
+                onChange={(e) => {
+                  setMaxPrice(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Đến (đ)"
+                aria-label="Giá đến"
+                className="w-20 bg-transparent text-zinc-800 placeholder:text-zinc-400 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+            </div>
 
-          <div className="relative inline-flex items-center">
-            <ArrowUpDown className="w-3.5 h-3.5 text-zinc-400 absolute left-3 pointer-events-none" />
-            <select
-              value={sortBy}
-              onChange={(e) => {
-                setSortBy(e.target.value as SortOption);
+            <button
+              onClick={() => {
+                setOnlyInStock((prev) => !prev);
                 setCurrentPage(1);
               }}
-              aria-label="Sắp xếp sản phẩm"
-              className="h-8 pl-8 pr-7 rounded-full bg-white border border-zinc-200/80 text-xs font-medium text-zinc-700 hover:bg-zinc-100 focus:outline-none cursor-pointer appearance-none"
+              className={`h-8 px-3 rounded-full text-xs font-medium border transition-colors ${
+                onlyInStock
+                  ? 'bg-zinc-900 text-white border-zinc-900'
+                  : 'bg-white text-zinc-600 border-zinc-200/80 hover:bg-zinc-100'
+              }`}
             >
-              <option value="DEFAULT">Sắp xếp: Mặc định</option>
-              <option value="PRICE_ASC">Giá: Thấp đến Cao</option>
-              <option value="PRICE_DESC">Giá: Cao đến Thấp</option>
-              <option value="STOCK_DESC">Tồn kho: Nhiều nhất</option>
-            </select>
+              Còn hàng
+            </button>
+
+            <div className="relative inline-flex items-center">
+              <ArrowUpDown className="w-3.5 h-3.5 text-zinc-400 absolute left-3 pointer-events-none" />
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(e.target.value as SortOption);
+                  setCurrentPage(1);
+                }}
+                aria-label="Sắp xếp sản phẩm"
+                className="h-8 pl-8 pr-7 rounded-full bg-white border border-zinc-200/80 text-xs font-medium text-zinc-700 hover:bg-zinc-100 focus:outline-none cursor-pointer appearance-none"
+              >
+                <option value="DEFAULT">Sắp xếp: Mặc định</option>
+                <option value="PRICE_ASC">Giá: Thấp đến Cao</option>
+                <option value="PRICE_DESC">Giá: Cao đến Thấp</option>
+                <option value="STOCK_DESC">Tồn kho: Nhiều nhất</option>
+              </select>
+            </div>
           </div>
         </div>
+
+        {priceRangeError && (
+          <div className="flex items-center gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-200/80 rounded-2xl px-4 py-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{priceRangeError}</span>
+          </div>
+        )}
       </div>
 
       {/* Empty Search / Filter State (UC-19 3a) */}
@@ -235,11 +313,6 @@ export const CatalogPage: React.FC = () => {
                       <span className="text-sm font-bold text-zinc-900 block leading-tight">
                         {formatVND(product.price)}
                       </span>
-                      {product.originalPrice && (
-                        <span className="text-[11px] text-zinc-400 line-through block mt-0.5">
-                          {formatVND(product.originalPrice)}
-                        </span>
-                      )}
                     </div>
 
                     <button
@@ -260,24 +333,14 @@ export const CatalogPage: React.FC = () => {
             })}
           </div>
 
-          {/* Pagination Bar (UC-17) */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-1.5 pt-4">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  onClick={() => setCurrentPage(page)}
-                  className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
-                    currentPage === page
-                      ? 'bg-zinc-900 text-white'
-                      : 'bg-white border border-zinc-200/80 text-zinc-600 hover:bg-zinc-100'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Pagination Bar (UC-17, ISS-19) */}
+          <PaginationBar
+            currentPage={currentPage}
+            totalItems={filteredProducts.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="sản phẩm"
+          />
         </>
       )}
     </div>
