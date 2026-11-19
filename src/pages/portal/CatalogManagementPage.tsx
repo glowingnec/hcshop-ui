@@ -13,10 +13,19 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { Category, Product } from '../../types/domain';
 import { formatVND } from '../../utils/formatters';
 
 type CatalogTab = 'PRODUCTS' | 'CATEGORIES';
+
+type CatalogConfirmAction =
+  | { type: 'DELETE_PRODUCT'; product: Product }
+  | { type: 'TOGGLE_PRODUCT'; product: Product }
+  | { type: 'DELETE_CATEGORY'; category: Category }
+  | { type: 'TOGGLE_CATEGORY'; category: Category; visibleChildCount: number };
 
 export const CatalogManagementPage: React.FC = () => {
   const {
@@ -36,7 +45,13 @@ export const CatalogManagementPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<CatalogTab>('PRODUCTS');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [productPage, setProductPage] = useState(1);
+  const [categoryPage, setCategoryPage] = useState(1);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<CatalogConfirmAction | null>(null);
+
+  const productPageSize = 8;
+  const categoryPageSize = 6;
 
   // Product Modal State
   const [showProductModal, setShowProductModal] = useState(false);
@@ -45,16 +60,19 @@ export const CatalogManagementPage: React.FC = () => {
   const [prdName, setPrdName] = useState('');
   const [prdCategoryId, setPrdCategoryId] = useState('');
   const [prdPrice, setPrdPrice] = useState('');
-  const [prdOriginalPrice, setPrdOriginalPrice] = useState('');
   const [prdInitialStock, setPrdInitialStock] = useState('10');
   const [prdMinThreshold, setPrdMinThreshold] = useState('5');
   const [prdDescription, setPrdDescription] = useState('');
+  const [prdImageUrl, setPrdImageUrl] = useState('');
+  const [prdIsVisibleOnCreate, setPrdIsVisibleOnCreate] = useState(true);
 
   // Category Modal State
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [catName, setCatName] = useState('');
   const [catDescription, setCatDescription] = useState('');
+  const [catImageUrl, setCatImageUrl] = useState('');
+  const [catIsVisibleOnCreate, setCatIsVisibleOnCreate] = useState(true);
 
   const activeCategories = useMemo(
     () => categories.filter((c) => !c.isDeleted),
@@ -82,6 +100,11 @@ export const CatalogManagementPage: React.FC = () => {
     });
   }, [activeProducts, categoryFilter, searchQuery]);
 
+  const paginatedProducts = useMemo(() => {
+    const start = (productPage - 1) * productPageSize;
+    return filteredProducts.slice(start, start + productPageSize);
+  }, [filteredProducts, productPage]);
+
   const filteredCategories = useMemo(() => {
     return activeCategories.filter((c) => {
       if (!searchQuery.trim()) return true;
@@ -93,6 +116,11 @@ export const CatalogManagementPage: React.FC = () => {
     });
   }, [activeCategories, searchQuery]);
 
+  const paginatedCategories = useMemo(() => {
+    const start = (categoryPage - 1) * categoryPageSize;
+    return filteredCategories.slice(start, start + categoryPageSize);
+  }, [filteredCategories, categoryPage]);
+
   const getCategoryName = (catId: string) =>
     categories.find((c) => c.id === catId)?.name || 'Chưa phân loại';
 
@@ -103,10 +131,11 @@ export const CatalogManagementPage: React.FC = () => {
     setPrdName('');
     setPrdCategoryId(activeCategories[0]?.id || '');
     setPrdPrice('1500000');
-    setPrdOriginalPrice('1800000');
     setPrdInitialStock('15');
     setPrdMinThreshold('5');
     setPrdDescription('');
+    setPrdImageUrl('');
+    setPrdIsVisibleOnCreate(true);
     setShowProductModal(true);
   };
 
@@ -116,33 +145,33 @@ export const CatalogManagementPage: React.FC = () => {
     setPrdName(prd.name);
     setPrdCategoryId(prd.categoryId);
     setPrdPrice(String(prd.price));
-    setPrdOriginalPrice(prd.originalPrice ? String(prd.originalPrice) : '');
     setPrdDescription(prd.description);
+    setPrdImageUrl(prd.imageUrl || '');
     setShowProductModal(true);
   };
 
   const handleSaveProduct = (e: React.FormEvent) => {
     e.preventDefault();
     const priceNum = Number(prdPrice);
-    const origNum = prdOriginalPrice ? Number(prdOriginalPrice) : undefined;
 
     const res = editingProduct
       ? updateProduct(editingProduct.id, {
           name: prdName,
           categoryId: prdCategoryId,
           price: priceNum,
-          originalPrice: origNum,
           description: prdDescription,
+          imageUrl: prdImageUrl || undefined,
         })
       : createProduct({
           code: prdCode,
           name: prdName,
           categoryId: prdCategoryId,
           price: priceNum,
-          originalPrice: origNum,
           description: prdDescription,
+          imageUrl: prdImageUrl || undefined,
           initialStock: Number(prdInitialStock),
           minStockThreshold: Number(prdMinThreshold),
+          isVisible: prdIsVisibleOnCreate,
         });
 
     setFeedback({ ok: res.ok, text: res.message });
@@ -155,6 +184,8 @@ export const CatalogManagementPage: React.FC = () => {
     setEditingCategory(null);
     setCatName('');
     setCatDescription('');
+    setCatImageUrl('');
+    setCatIsVisibleOnCreate(true);
     setShowCategoryModal(true);
   };
 
@@ -162,6 +193,7 @@ export const CatalogManagementPage: React.FC = () => {
     setEditingCategory(cat);
     setCatName(cat.name);
     setCatDescription(cat.description);
+    setCatImageUrl(cat.imageUrl || '');
     setShowCategoryModal(true);
   };
 
@@ -171,10 +203,13 @@ export const CatalogManagementPage: React.FC = () => {
       ? updateCategory(editingCategory.id, {
           name: catName,
           description: catDescription,
+          imageUrl: catImageUrl || undefined,
         })
       : createCategory({
           name: catName,
           description: catDescription,
+          imageUrl: catImageUrl || undefined,
+          isVisible: catIsVisibleOnCreate,
         });
 
     setFeedback({ ok: res.ok, text: res.message });
@@ -242,7 +277,10 @@ export const CatalogManagementPage: React.FC = () => {
         <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
           <button
             type="button"
-            onClick={() => setActiveTab('PRODUCTS')}
+            onClick={() => {
+              setActiveTab('PRODUCTS');
+              setProductPage(1);
+            }}
             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
               activeTab === 'PRODUCTS'
                 ? 'bg-white text-zinc-900 shadow-sm'
@@ -254,7 +292,10 @@ export const CatalogManagementPage: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('CATEGORIES')}
+            onClick={() => {
+              setActiveTab('CATEGORIES');
+              setCategoryPage(1);
+            }}
             className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
               activeTab === 'CATEGORIES'
                 ? 'bg-white text-zinc-900 shadow-sm'
@@ -270,7 +311,10 @@ export const CatalogManagementPage: React.FC = () => {
           {activeTab === 'PRODUCTS' && (
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
+              onChange={(e) => {
+                setCategoryFilter(e.target.value);
+                setProductPage(1);
+              }}
               className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none"
             >
               <option value="ALL">Tất cả danh mục</option>
@@ -287,7 +331,11 @@ export const CatalogManagementPage: React.FC = () => {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setProductPage(1);
+                setCategoryPage(1);
+              }}
               placeholder={
                 activeTab === 'PRODUCTS'
                   ? 'Tìm theo tên hoặc mã SKU...'
@@ -301,221 +349,258 @@ export const CatalogManagementPage: React.FC = () => {
 
       {/* TAB 1: PRODUCTS TABLE */}
       {activeTab === 'PRODUCTS' && (
-        <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
-                  <th className="py-3 px-4">Sản phẩm</th>
-                  <th className="py-3 px-4">Danh mục</th>
-                  <th className="py-3 px-4">Giá bán</th>
-                  <th className="py-3 px-4">Tồn kho</th>
-                  <th className="py-3 px-4">Trạng thái</th>
-                  <th className="py-3 px-4 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 text-xs">
-                {filteredProducts.map((product) => {
-                  const inOrders = orders.some((o) =>
-                    o.items.some((i) => i.productId === product.id)
-                  );
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
+                    <th className="py-3 px-4">Sản phẩm</th>
+                    <th className="py-3 px-4">Danh mục</th>
+                    <th className="py-3 px-4">Giá bán</th>
+                    <th className="py-3 px-4">Tồn kho</th>
+                    <th className="py-3 px-4">Trạng thái</th>
+                    <th className="py-3 px-4 text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 text-xs">
+                  {paginatedProducts.map((product) => {
+                    const inOrders = orders.some((o) =>
+                      o.items.some((i) => i.productId === product.id)
+                    );
 
-                  return (
-                    <tr
-                      key={product.id}
-                      className="hover:bg-zinc-50/70 transition-colors"
-                    >
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={product.imageUrl}
-                            alt={product.name}
-                            className="w-10 h-10 rounded-xl object-cover bg-zinc-100 border border-zinc-200/60 shrink-0"
-                          />
-                          <div>
-                            <div className="font-semibold text-zinc-900">
-                              {product.name}
-                            </div>
-                            <div className="text-[11px] font-mono text-zinc-400">
-                              {product.code}
+                    return (
+                      <tr
+                        key={product.id}
+                        className="hover:bg-zinc-50/70 transition-colors"
+                      >
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-10 h-10 rounded-xl object-cover bg-zinc-100 border border-zinc-200/60 shrink-0"
+                            />
+                            <div>
+                              <div className="font-semibold text-zinc-900">
+                                {product.name}
+                              </div>
+                              <div className="text-[11px] font-mono text-zinc-400">
+                                {product.code}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-zinc-600">
-                        {getCategoryName(product.categoryId)}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-bold text-zinc-900">
-                          {formatVND(product.price)}
-                        </div>
-                        {product.originalPrice && (
-                          <div className="text-[11px] text-zinc-400 line-through">
-                            {formatVND(product.originalPrice)}
+                        </td>
+                        <td className="py-3 px-4 text-zinc-600">
+                          {getCategoryName(product.categoryId)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-zinc-900">
+                            {formatVND(product.price)}
                           </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`font-semibold ${
-                            product.stock === 0
-                              ? 'text-rose-600'
-                              : product.stock <= product.minStockThreshold
-                              ? 'text-amber-600'
-                              : 'text-zinc-800'
-                          }`}
-                        >
-                          {product.stock}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                            product.isVisible
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
-                              : 'bg-zinc-100 text-zinc-500'
-                          }`}
-                        >
-                          {product.isVisible ? 'Đang bán' : 'Tạm ẩn'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const res = toggleProductVisibility(product.id);
-                              setFeedback({ ok: res.ok, text: res.message });
-                            }}
-                            title={product.isVisible ? 'Tạm ẩn sản phẩm' : 'Mở bán lại'}
-                            className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`font-semibold ${
+                              product.stock === 0
+                                ? 'text-rose-600'
+                                : product.stock <= product.minStockThreshold
+                                ? 'text-amber-600'
+                                : 'text-zinc-800'
+                            }`}
                           >
-                            {product.isVisible ? (
-                              <EyeOff className="w-3.5 h-3.5" />
-                            ) : (
-                              <Eye className="w-3.5 h-3.5" />
-                            )}
-                          </button>
+                            {product.stock}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
+                              product.isVisible
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                                : 'bg-zinc-100 text-zinc-500'
+                            }`}
+                          >
+                            {product.isVisible ? 'Đang bán' : 'Tạm ẩn'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'TOGGLE_PRODUCT',
+                                  product,
+                                })
+                              }
+                              title={
+                                product.isVisible
+                                  ? 'Tạm ẩn sản phẩm'
+                                  : 'Mở bán lại'
+                              }
+                              className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                            >
+                              {product.isVisible ? (
+                                <EyeOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() => openEditProduct(product)}
-                            title="Chỉnh sửa sản phẩm"
-                            className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditProduct(product)}
+                              title="Chỉnh sửa sản phẩm"
+                              className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const res = deleteProduct(product.id);
-                              setFeedback({ ok: res.ok, text: res.message });
-                            }}
-                            title={
-                              inOrders
-                                ? 'Sản phẩm đã có đơn hàng — chỉ hỗ trợ tạm ẩn'
-                                : 'Xóa sản phẩm'
-                            }
-                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'DELETE_PRODUCT',
+                                  product,
+                                })
+                              }
+                              title={
+                                inOrders
+                                  ? 'Sản phẩm đã có đơn hàng — chỉ hỗ trợ tạm ẩn'
+                                  : 'Xóa sản phẩm'
+                              }
+                              className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          <PaginationBar
+            currentPage={productPage}
+            totalItems={filteredProducts.length}
+            pageSize={productPageSize}
+            onPageChange={setProductPage}
+          />
         </div>
       )}
 
       {/* TAB 2: CATEGORIES GRID */}
       {activeTab === 'CATEGORIES' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredCategories.map((cat) => {
-            const productCount = activeProducts.filter(
-              (p) => p.categoryId === cat.id
-            ).length;
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {paginatedCategories.map((cat) => {
+              const productCount = activeProducts.filter(
+                (p) => p.categoryId === cat.id
+              ).length;
+              const visibleChildCount = activeProducts.filter(
+                (p) => p.categoryId === cat.id && p.isVisible
+              ).length;
 
-            return (
-              <div
-                key={cat.id}
-                className="bg-white rounded-2xl border border-zinc-200/80 p-4 flex flex-col justify-between gap-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#f1f5f9] flex items-center justify-center text-xs font-bold text-zinc-700">
-                      {cat.iconName}
+              return (
+                <div
+                  key={cat.id}
+                  className="bg-white rounded-2xl border border-zinc-200/80 p-4 flex flex-col justify-between gap-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {cat.imageUrl ? (
+                        <img
+                          src={cat.imageUrl}
+                          alt={cat.name}
+                          className="w-10 h-10 rounded-xl object-cover border border-zinc-200/60 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-[#f1f5f9] flex items-center justify-center text-xs font-bold text-zinc-700 shrink-0">
+                          {cat.iconName}
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="text-sm font-bold text-zinc-900">
+                          {cat.name}
+                        </h3>
+                        <p className="text-[11px] text-zinc-400">
+                          {productCount} sản phẩm
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-sm font-bold text-zinc-900">
-                        {cat.name}
-                      </h3>
-                      <p className="text-[11px] text-zinc-400">
-                        {productCount} sản phẩm
-                      </p>
-                    </div>
+
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        cat.isVisible
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : 'bg-zinc-100 text-zinc-500'
+                      }`}
+                    >
+                      {cat.isVisible ? 'Hiển thị' : 'Tạm ẩn'}
+                    </span>
                   </div>
 
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                      cat.isVisible
-                        ? 'bg-emerald-50 text-emerald-700'
-                        : 'bg-zinc-100 text-zinc-500'
-                    }`}
-                  >
-                    {cat.isVisible ? 'Hiển thị' : 'Tạm ẩn'}
-                  </span>
-                </div>
+                  <p className="text-xs text-zinc-500 line-clamp-2">
+                    {cat.description}
+                  </p>
 
-                <p className="text-xs text-zinc-500 line-clamp-2">
-                  {cat.description}
-                </p>
-
-                <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const res = toggleCategoryVisibility(cat.id);
-                      setFeedback({ ok: res.ok, text: res.message });
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-[11px] font-medium text-zinc-700"
-                  >
-                    {cat.isVisible ? 'Tạm ẩn' : 'Hiển thị'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openEditCategory(cat)}
-                    className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const res = deleteCategory(cat.id);
-                      setFeedback({ ok: res.ok, text: res.message });
-                    }}
-                    className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="pt-3 border-t border-zinc-100 flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: 'TOGGLE_CATEGORY',
+                          category: cat,
+                          visibleChildCount,
+                        })
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-[11px] font-medium text-zinc-700"
+                    >
+                      {cat.isVisible ? 'Tạm ẩn' : 'Hiển thị'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEditCategory(cat)}
+                      className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setConfirmAction({
+                          type: 'DELETE_CATEGORY',
+                          category: cat,
+                        })
+                      }
+                      className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+
+          <PaginationBar
+            currentPage={categoryPage}
+            totalItems={filteredCategories.length}
+            pageSize={categoryPageSize}
+            onPageChange={setCategoryPage}
+          />
         </div>
       )}
 
       {/* Create / Edit Product Modal */}
       {showProductModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveProduct}
-            className="bg-white rounded-3xl border border-zinc-200/80 max-w-lg w-full p-6 shadow-xl space-y-4"
+            className="bg-white rounded-3xl border border-zinc-200/80 max-w-lg w-full p-6 shadow-xl space-y-4 my-auto"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-zinc-900">
@@ -557,7 +642,7 @@ export const CatalogManagementPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 mb-1">
                   Danh mục *
@@ -582,17 +667,6 @@ export const CatalogManagementPage: React.FC = () => {
                   type="number"
                   value={prdPrice}
                   onChange={(e) => setPrdPrice(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                  Giá niêm yết cũ
-                </label>
-                <input
-                  type="number"
-                  value={prdOriginalPrice}
-                  onChange={(e) => setPrdOriginalPrice(e.target.value)}
                   className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
                 />
               </div>
@@ -629,6 +703,12 @@ export const CatalogManagementPage: React.FC = () => {
               </p>
             )}
 
+            <ImageUploadField
+              label="Hình ảnh sản phẩm"
+              value={prdImageUrl}
+              onChange={setPrdImageUrl}
+            />
+
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
                 Mô tả ngắn
@@ -640,6 +720,18 @@ export const CatalogManagementPage: React.FC = () => {
                 className="w-full p-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
               />
             </div>
+
+            {!editingProduct && (
+              <label className="flex items-center gap-2 text-xs text-zinc-700 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={prdIsVisibleOnCreate}
+                  onChange={(e) => setPrdIsVisibleOnCreate(e.target.checked)}
+                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                />
+                <span>Hiển thị ngay sau khi tạo</span>
+              </label>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -662,10 +754,10 @@ export const CatalogManagementPage: React.FC = () => {
 
       {/* Create / Edit Category Modal */}
       {showCategoryModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveCategory}
-            className="bg-white rounded-3xl border border-zinc-200/80 max-w-md w-full p-6 shadow-xl space-y-4"
+            className="bg-white rounded-3xl border border-zinc-200/80 max-w-md w-full p-6 shadow-xl space-y-4 my-auto"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-zinc-900">
@@ -693,6 +785,12 @@ export const CatalogManagementPage: React.FC = () => {
               />
             </div>
 
+            <ImageUploadField
+              label="Hình ảnh danh mục (tùy chọn)"
+              value={catImageUrl}
+              onChange={setCatImageUrl}
+            />
+
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
                 Mô tả danh mục
@@ -704,6 +802,18 @@ export const CatalogManagementPage: React.FC = () => {
                 className="w-full p-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
               />
             </div>
+
+            {!editingCategory && (
+              <label className="flex items-center gap-2 text-xs text-zinc-700 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={catIsVisibleOnCreate}
+                  onChange={(e) => setCatIsVisibleOnCreate(e.target.checked)}
+                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                />
+                <span>Hiển thị ngay sau khi tạo</span>
+              </label>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -723,6 +833,76 @@ export const CatalogManagementPage: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Confirm Delete / Toggle Visibility Modal */}
+      <ConfirmModal
+        open={Boolean(confirmAction)}
+        title={
+          confirmAction?.type === 'DELETE_PRODUCT'
+            ? `Xóa sản phẩm "${confirmAction.product.name}"?`
+            : confirmAction?.type === 'TOGGLE_PRODUCT'
+            ? confirmAction.product.isVisible
+              ? `Tạm ẩn sản phẩm "${confirmAction.product.name}"?`
+              : `Mở bán lại sản phẩm "${confirmAction.product.name}"?`
+            : confirmAction?.type === 'DELETE_CATEGORY'
+            ? `Xóa danh mục "${confirmAction.category.name}"?`
+            : confirmAction?.type === 'TOGGLE_CATEGORY'
+            ? confirmAction.category.isVisible
+              ? `Tạm ẩn danh mục "${confirmAction.category.name}"?`
+              : `Hiển thị lại danh mục "${confirmAction.category.name}"?`
+            : ''
+        }
+        description={
+          confirmAction?.type === 'DELETE_PRODUCT'
+            ? 'Bạn có chắc chắn muốn xóa sản phẩm này khỏi hệ thống?'
+            : confirmAction?.type === 'TOGGLE_PRODUCT'
+            ? confirmAction.product.isVisible
+              ? 'Sản phẩm sẽ bị ẩn khỏi cửa hàng và khách hàng không thể đặt mua mới.'
+              : 'Sản phẩm sẽ hiển thị trở lại trên cửa hàng.'
+            : confirmAction?.type === 'DELETE_CATEGORY'
+            ? 'Bạn có chắc chắn muốn xóa danh mục này? Chỉ có thể xóa danh mục chưa chứa sản phẩm.'
+            : confirmAction?.type === 'TOGGLE_CATEGORY'
+            ? confirmAction.category.isVisible
+              ? 'Danh mục này sẽ không còn hiển thị trên cửa hàng.'
+              : 'Danh mục sẽ hiển thị trở lại trên cửa hàng.'
+            : ''
+        }
+        warningNote={
+          confirmAction?.type === 'TOGGLE_CATEGORY' &&
+          confirmAction.category.isVisible &&
+          confirmAction.visibleChildCount > 0
+            ? `Cảnh báo: Danh mục này hiện có ${confirmAction.visibleChildCount} sản phẩm đang bán. Khi ẩn danh mục, toàn bộ các sản phẩm thuộc danh mục này cũng sẽ bị tạm ẩn theo trên cửa hàng.`
+            : undefined
+        }
+        variant={
+          confirmAction?.type === 'DELETE_PRODUCT' ||
+          confirmAction?.type === 'DELETE_CATEGORY'
+            ? 'danger'
+            : 'warning'
+        }
+        confirmLabel={
+          confirmAction?.type === 'DELETE_PRODUCT' ||
+          confirmAction?.type === 'DELETE_CATEGORY'
+            ? 'Xác nhận xóa'
+            : 'Xác nhận'
+        }
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (!confirmAction) return;
+          let res: { ok: boolean; message: string };
+          if (confirmAction.type === 'DELETE_PRODUCT') {
+            res = deleteProduct(confirmAction.product.id);
+          } else if (confirmAction.type === 'TOGGLE_PRODUCT') {
+            res = toggleProductVisibility(confirmAction.product.id);
+          } else if (confirmAction.type === 'DELETE_CATEGORY') {
+            res = deleteCategory(confirmAction.category.id);
+          } else {
+            res = toggleCategoryVisibility(confirmAction.category.id);
+          }
+          setFeedback({ ok: res.ok, text: res.message });
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 };

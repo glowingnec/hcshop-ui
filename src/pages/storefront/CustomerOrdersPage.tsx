@@ -15,25 +15,27 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { Order, OrderStatus } from '../../types/domain';
 import { formatVND, formatDateTime, ORDER_STATUS_META, PAYMENT_METHOD_LABELS } from '../../utils/formatters';
 
 const STATUS_TABS: { id: 'ALL' | OrderStatus; label: string }[] = [
   { id: 'ALL', label: 'Tất cả' },
-  { id: 'PENDING', label: 'Chờ xác nhận' },
-  { id: 'CONFIRMED', label: 'Đã xác nhận' },
-  { id: 'PREPARING', label: 'Đang chuẩn bị' },
-  { id: 'SHIPPING', label: 'Đang giao' },
-  { id: 'COMPLETED', label: 'Hoàn thành' },
-  { id: 'CANCELLED', label: 'Đã hủy' },
+  { id: 'ChoXacNhan', label: 'Chờ xác nhận' },
+  { id: 'DaXacNhan', label: 'Đã xác nhận' },
+  { id: 'DangChuanBi', label: 'Đang chuẩn bị' },
+  { id: 'DangGiao', label: 'Đang giao' },
+  { id: 'HoanThanh', label: 'Hoàn thành' },
+  { id: 'DaHuy', label: 'Đã hủy' },
 ];
 
 const JOURNEY_STEPS: { status: OrderStatus; label: string }[] = [
-  { status: 'PENDING', label: 'Đặt đơn' },
-  { status: 'CONFIRMED', label: 'Đã xác nhận' },
-  { status: 'PREPARING', label: 'Chuẩn bị hàng' },
-  { status: 'SHIPPING', label: 'Đang giao' },
-  { status: 'COMPLETED', label: 'Hoàn thành' },
+  { status: 'ChoXacNhan', label: 'Chờ xác nhận' },
+  { status: 'DaXacNhan', label: 'Đã xác nhận' },
+  { status: 'DangChuanBi', label: 'Đang chuẩn bị' },
+  { status: 'DangGiao', label: 'Đang giao' },
+  { status: 'HoanThanh', label: 'Hoàn thành' },
 ];
 
 const CANCEL_REASONS = [
@@ -55,15 +57,20 @@ export const CustomerOrdersPage: React.FC = () => {
 
   const [statusFilter, setStatusFilter] = useState<'ALL' | OrderStatus>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [orderDateFrom, setOrderDateFrom] = useState('');
+  const [orderDateTo, setOrderDateTo] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const pageSize = 6;
 
   // Cancel Order Modal state (UC-41)
   const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
   const [selectedReason, setSelectedReason] = useState(CANCEL_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
 
-  // Quick Review Modal state (UC-53 / UC-54)
+  // Quick Review Modal state (UC-53 / UC-54, ISS-03, ISS-09)
   const [reviewingItem, setReviewingItem] = useState<{
     productId: string;
     productName: string;
@@ -71,6 +78,12 @@ export const CustomerOrdersPage: React.FC = () => {
   } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
+  const [reviewImages, setReviewImages] = useState<string[]>([]);
+
+  const dateRangeError =
+    orderDateFrom && orderDateTo && orderDateFrom > orderDateTo
+      ? 'Ngày bắt đầu không được lớn hơn ngày kết thúc.'
+      : null;
 
   const myOrders = useMemo(() => {
     if (!currentUser) return [];
@@ -82,6 +95,11 @@ export const CustomerOrdersPage: React.FC = () => {
       if (statusFilter !== 'ALL' && order.status !== statusFilter) {
         return false;
       }
+      if (!dateRangeError) {
+        const orderDay = order.createdAt.slice(0, 10);
+        if (orderDateFrom && orderDay < orderDateFrom) return false;
+        if (orderDateTo && orderDay > orderDateTo) return false;
+      }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchCode = order.code.toLowerCase().includes(q);
@@ -92,15 +110,20 @@ export const CustomerOrdersPage: React.FC = () => {
       }
       return true;
     });
-  }, [myOrders, statusFilter, searchQuery]);
+  }, [myOrders, statusFilter, searchQuery, orderDateFrom, orderDateTo, dateRangeError]);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredOrders.slice(start, start + pageSize);
+  }, [filteredOrders, currentPage]);
 
   const activeOrder = useMemo(() => {
     if (selectedOrderId) {
       const found = myOrders.find((o) => o.id === selectedOrderId);
       if (found) return found;
     }
-    return filteredOrders[0] || null;
-  }, [myOrders, filteredOrders, selectedOrderId]);
+    return paginatedOrders[0] || filteredOrders[0] || null;
+  }, [myOrders, paginatedOrders, filteredOrders, selectedOrderId]);
 
   if (!currentUser) {
     return (
@@ -148,12 +171,18 @@ export const CustomerOrdersPage: React.FC = () => {
     setReviewingItem(item);
     setReviewRating(existing ? existing.rating : 5);
     setReviewComment(existing ? existing.comment : '');
+    setReviewImages(existing?.images || []);
   };
 
   const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!reviewingItem) return;
-    const res = submitReview(reviewingItem.productId, reviewRating, reviewComment);
+    const res = submitReview(
+      reviewingItem.productId,
+      reviewRating,
+      reviewComment,
+      reviewImages
+    );
     setFeedback({ ok: res.ok, text: res.message });
     if (res.ok) {
       setReviewingItem(null);
@@ -217,20 +246,65 @@ export const CustomerOrdersPage: React.FC = () => {
         </div>
       )}
 
-      {/* Search & Status Filter Bar (UC-38) */}
+      {/* Search, Date Range & Status Filter Bar (UC-38, ISS-12) */}
       <div className="bg-white rounded-3xl border border-zinc-200/80 p-4 space-y-3">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               placeholder="Tìm theo mã đơn (VD: DH2026...) hoặc tên sản phẩm..."
               className="w-full h-10 pl-10 pr-4 rounded-full bg-[#f4f4f5] text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
             />
           </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="text-zinc-500">Ngày đặt:</span>
+            <input
+              type="date"
+              value={orderDateFrom}
+              onChange={(e) => {
+                setOrderDateFrom(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Từ ngày"
+              className="h-9 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+            />
+            <span className="text-zinc-400">–</span>
+            <input
+              type="date"
+              value={orderDateTo}
+              onChange={(e) => {
+                setOrderDateTo(e.target.value);
+                setCurrentPage(1);
+              }}
+              aria-label="Đến ngày"
+              className="h-9 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+            />
+            {(orderDateFrom || orderDateTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOrderDateFrom('');
+                  setOrderDateTo('');
+                  setCurrentPage(1);
+                }}
+                className="h-9 px-3 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-medium"
+              >
+                Xóa ngày
+              </button>
+            )}
+          </div>
         </div>
+
+        {dateRangeError && (
+          <p className="text-[12px] text-rose-600">{dateRangeError}</p>
+        )}
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           {STATUS_TABS.map((tab) => {
@@ -243,7 +317,10 @@ export const CustomerOrdersPage: React.FC = () => {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setStatusFilter(tab.id)}
+                onClick={() => {
+                  setStatusFilter(tab.id);
+                  setCurrentPage(1);
+                }}
                 className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-zinc-900 text-white'
@@ -276,9 +353,9 @@ export const CustomerOrdersPage: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left Column: Orders List (UC-38) */}
+          {/* Left Column: Orders List (UC-38, ISS-19) */}
           <div className="lg:col-span-5 space-y-3">
-            {filteredOrders.map((order) => {
+            {paginatedOrders.map((order) => {
               const meta = ORDER_STATUS_META[order.status];
               const isSelected = activeOrder?.id === order.id;
 
@@ -335,6 +412,14 @@ export const CustomerOrdersPage: React.FC = () => {
                 </button>
               );
             })}
+
+            <PaginationBar
+              currentPage={currentPage}
+              totalItems={filteredOrders.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              itemLabel="đơn hàng"
+            />
           </div>
 
           {/* Right Column: Order Detail & Visual Journey Timeline (UC-39, UC-41, UC-42, UC-53) */}
@@ -364,8 +449,8 @@ export const CustomerOrdersPage: React.FC = () => {
                 </div>
 
                 {/* Cancel Order Action */}
-                {(activeOrder.status === 'PENDING' ||
-                  activeOrder.status === 'CONFIRMED') && (
+                {(activeOrder.status === 'ChoXacNhan' ||
+                  activeOrder.status === 'DaXacNhan') && (
                   <button
                     type="button"
                     onClick={() => setCancellingOrder(activeOrder)}
@@ -376,8 +461,8 @@ export const CustomerOrdersPage: React.FC = () => {
                   </button>
                 )}
 
-                {(activeOrder.status === 'PREPARING' ||
-                  activeOrder.status === 'SHIPPING') && (
+                {(activeOrder.status === 'DangChuanBi' ||
+                  activeOrder.status === 'DangGiao') && (
                   <span
                     title="Đơn hàng đã chuyển sang khâu chuẩn bị/vận chuyển nên không thể hủy trực tuyến"
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-zinc-100 text-zinc-400 text-[11px] font-medium cursor-not-allowed"
@@ -393,7 +478,7 @@ export const CustomerOrdersPage: React.FC = () => {
                   Tiến trình đơn hàng
                 </div>
 
-                {activeOrder.status === 'CANCELLED' ? (
+                {activeOrder.status === 'DaHuy' ? (
                   <div className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200/80 flex items-start gap-3">
                     <RotateCcw className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
                     <div className="text-[13px]">
@@ -437,24 +522,39 @@ export const CustomerOrdersPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* Detailed Timeline Logs */}
+                {/* Detailed Timeline Logs (UC-42, ISS-10) */}
                 <div className="bg-[#f8f9fa] rounded-2xl border border-zinc-200/60 p-4 space-y-3">
-                  {[...activeOrder.timeline].reverse().map((entry, idx) => (
-                    <div key={idx} className="flex items-start gap-3 text-[12px]">
-                      <div
-                        className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
-                          idx === 0 ? 'bg-zinc-900 ring-4 ring-zinc-900/10' : 'bg-zinc-300'
-                        }`}
-                      />
-                      <div className="flex-1">
-                        <div className="font-semibold text-zinc-900">{entry.note}</div>
-                        <div className="text-zinc-500 text-[11px] mt-0.5">
-                          {formatDateTime(entry.timestamp)}
-                          {entry.actorName ? ` • Thực hiện bởi: ${entry.actorName}` : ''}
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                    Nhật ký hành trình đơn hàng ({activeOrder.timeline.length} mốc)
+                  </div>
+                  {[...activeOrder.timeline].reverse().map((entry, idx) => {
+                    const entryMeta = ORDER_STATUS_META[entry.status];
+                    return (
+                      <div key={idx} className="flex items-start gap-3 text-[12px]">
+                        <div
+                          className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+                            idx === 0 ? 'bg-zinc-900 ring-4 ring-zinc-900/10' : 'bg-zinc-300'
+                          }`}
+                        />
+                        <div className="flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${entryMeta.badgeClass}`}
+                            >
+                              {entryMeta.label}
+                            </span>
+                            <span className="font-semibold text-zinc-900">
+                              {entry.note}
+                            </span>
+                          </div>
+                          <div className="text-zinc-500 text-[11px]">
+                            {formatDateTime(entry.timestamp)}
+                            {entry.actorName ? ` • Thực hiện bởi: ${entry.actorName}` : ''}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -503,7 +603,7 @@ export const CustomerOrdersPage: React.FC = () => {
                             </div>
                           </div>
 
-                          {activeOrder.status === 'COMPLETED' && (
+                          {activeOrder.status === 'HoanThanh' && (
                             <button
                               type="button"
                               onClick={() => openReviewModal(item)}
@@ -704,16 +804,29 @@ export const CustomerOrdersPage: React.FC = () => {
 
             <div>
               <label className="block text-[12px] font-semibold text-zinc-700 mb-1">
-                Nhận xét chi tiết (tối đa 500 ký tự) *
+                Nhận xét chi tiết (tối đa 2000 ký tự) *
               </label>
               <textarea
                 rows={3}
+                maxLength={2000}
                 value={reviewComment}
                 onChange={(e) => setReviewComment(e.target.value)}
                 placeholder="Chia sẻ trải nghiệm thực tế của bạn về sản phẩm..."
                 className="w-full p-3 rounded-2xl bg-[#f8f9fa] border border-zinc-200 text-[13px] focus:outline-none focus:bg-white focus:border-zinc-900"
               />
+              <div className="text-right text-[11px] text-zinc-400 mt-0.5">
+                {reviewComment.length} / 2000 ký tự
+              </div>
             </div>
+
+            <ImageUploadField
+              multiple
+              label="Hình ảnh thực tế (tùy chọn)"
+              values={reviewImages}
+              onChange={setReviewImages}
+              maxFiles={4}
+              helperText="Tối đa 4 ảnh (.JPG, .PNG, .WEBP, mỗi ảnh ≤ 5MB)"
+            />
 
             <div className="flex items-center justify-end gap-2 pt-1">
               <button

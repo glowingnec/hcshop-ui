@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { Product, StockMovementType } from '../../types/domain';
 import { formatVND, formatDateTime } from '../../utils/formatters';
 
@@ -21,22 +22,22 @@ const MOVEMENT_META: Record<
   StockMovementType,
   { label: string; badgeClass: string; sign: '+' | '-' }
 > = {
-  IMPORT: {
+  NhapTang: {
     label: 'Nhập kho',
     badgeClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200/60',
     sign: '+',
   },
-  SALE: {
+  XuatBan: {
     label: 'Xuất bán',
     badgeClass: 'bg-blue-50 text-blue-700 border border-blue-200/60',
     sign: '-',
   },
-  ADJUST_DECREASE: {
+  DieuChinhGiam: {
     label: 'Điều chỉnh giảm',
     badgeClass: 'bg-amber-50 text-amber-800 border border-amber-200/60',
     sign: '-',
   },
-  CANCEL_RESTORE: {
+  HoanDon: {
     label: 'Hoàn kho đơn hủy',
     badgeClass: 'bg-indigo-50 text-indigo-700 border border-indigo-200/60',
     sign: '+',
@@ -64,14 +65,22 @@ export const InventoryManagementPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [onlyLowStock, setOnlyLowStock] = useState(false);
   const [historyTypeFilter, setHistoryTypeFilter] = useState<'ALL' | StockMovementType>('ALL');
+  const [historyProductFilter, setHistoryProductFilter] = useState<string>('ALL');
+  const [historyDateFrom, setHistoryDateFrom] = useState('');
+  const [historyDateTo, setHistoryDateTo] = useState('');
+  const [stockPage, setStockPage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const stockPageSize = 8;
+  const historyPageSize = 10;
 
   // Import Modal State
   const [showImportModal, setShowImportModal] = useState(false);
   const [importProductId, setImportProductId] = useState('');
   const [importQty, setImportQty] = useState('10');
-  const [importPrice, setImportPrice] = useState('1200000');
-  const [importSupplier, setImportSupplier] = useState('Nhà phân phối chính hãng');
+  const [importPrice, setImportPrice] = useState('');
+  const [importSupplier, setImportSupplier] = useState('');
   const [importNote, setImportNote] = useState('');
 
   // Adjust Decrease Modal State
@@ -116,9 +125,29 @@ export const InventoryManagementPage: React.FC = () => {
     });
   }, [activeProducts, onlyLowStock, searchQuery]);
 
+  const paginatedProducts = useMemo(() => {
+    const start = (stockPage - 1) * stockPageSize;
+    return filteredProducts.slice(start, start + stockPageSize);
+  }, [filteredProducts, stockPage]);
+
+  const historyDateInvalid = Boolean(
+    historyDateFrom && historyDateTo && historyDateFrom > historyDateTo
+  );
+
   const filteredHistories = useMemo(() => {
+    if (historyDateInvalid) return [];
     return stockHistories.filter((h) => {
       if (historyTypeFilter !== 'ALL' && h.type !== historyTypeFilter) {
+        return false;
+      }
+      if (historyProductFilter !== 'ALL' && h.productId !== historyProductFilter) {
+        return false;
+      }
+      const dateStr = h.createdAt.slice(0, 10);
+      if (historyDateFrom && dateStr < historyDateFrom) {
+        return false;
+      }
+      if (historyDateTo && dateStr > historyDateTo) {
         return false;
       }
       if (searchQuery.trim()) {
@@ -132,15 +161,28 @@ export const InventoryManagementPage: React.FC = () => {
       }
       return true;
     });
-  }, [stockHistories, historyTypeFilter, searchQuery, products]);
+  }, [
+    stockHistories,
+    historyTypeFilter,
+    historyProductFilter,
+    historyDateFrom,
+    historyDateTo,
+    historyDateInvalid,
+    searchQuery,
+    products,
+  ]);
+
+  const paginatedHistories = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+    return filteredHistories.slice(start, start + historyPageSize);
+  }, [filteredHistories, historyPage]);
 
   const openImportModalFor = (productId?: string) => {
     const targetId = productId || activeProducts[0]?.id || '';
-    const target = activeProducts.find((p) => p.id === targetId);
     setImportProductId(targetId);
     setImportQty('15');
-    setImportPrice(target ? String(Math.round(target.price * 0.7)) : '1000000');
-    setImportSupplier('Nhà phân phối chính hãng');
+    setImportPrice('');
+    setImportSupplier('');
     setImportNote('Nhập hàng bổ sung định kỳ');
     setShowImportModal(true);
   };
@@ -159,8 +201,8 @@ export const InventoryManagementPage: React.FC = () => {
     const res = importStock({
       productId: importProductId,
       quantity: Number(importQty),
-      importPrice: Number(importPrice),
-      supplier: importSupplier,
+      importPrice: importPrice.trim() ? Number(importPrice) : undefined,
+      supplier: importSupplier.trim() || undefined,
       note: importNote,
     });
     setFeedback({ ok: res.ok, text: res.message });
@@ -301,260 +343,367 @@ export const InventoryManagementPage: React.FC = () => {
       )}
 
       {/* Mode Tabs & Filter Controls */}
-      <div className="bg-white rounded-2xl border border-zinc-200/80 p-3.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
-          <button
-            type="button"
-            onClick={() => setActiveTab('STOCK_LIST')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-              activeTab === 'STOCK_LIST'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-900'
-            }`}
-          >
-            <Boxes className="w-3.5 h-3.5" />
-            <span>Tồn kho hiện tại ({activeProducts.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('HISTORY')}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-              activeTab === 'HISTORY'
-                ? 'bg-white text-zinc-900 shadow-sm'
-                : 'text-zinc-500 hover:text-zinc-900'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>Sổ cái biến động ({stockHistories.length})</span>
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5 flex-1 justify-end">
-          {activeTab === 'STOCK_LIST' ? (
+      <div className="bg-white rounded-2xl border border-zinc-200/80 p-3.5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
             <button
               type="button"
-              onClick={() => setOnlyLowStock((prev) => !prev)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                onlyLowStock
-                  ? 'bg-amber-50 border-amber-300 text-amber-800'
-                  : 'bg-[#f4f4f5] border-transparent text-zinc-600 hover:text-zinc-900'
+              onClick={() => {
+                setActiveTab('STOCK_LIST');
+                setStockPage(1);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                activeTab === 'STOCK_LIST'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-900'
               }`}
             >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Chỉ hiện cảnh báo sắp hết</span>
+              <Boxes className="w-3.5 h-3.5" />
+              <span>Tồn kho hiện tại ({activeProducts.length})</span>
             </button>
-          ) : (
-            <select
-              value={historyTypeFilter}
-              onChange={(e) =>
-                setHistoryTypeFilter(e.target.value as 'ALL' | StockMovementType)
-              }
-              className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none"
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('HISTORY');
+                setHistoryPage(1);
+              }}
+              className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                activeTab === 'HISTORY'
+                  ? 'bg-white text-zinc-900 shadow-sm'
+                  : 'text-zinc-500 hover:text-zinc-900'
+              }`}
             >
-              <option value="ALL">Tất cả loại biến động</option>
-              <option value="IMPORT">Nhập kho (+)</option>
-              <option value="SALE">Xuất bán đơn hàng (-)</option>
-              <option value="ADJUST_DECREASE">Điều chỉnh giảm (-)</option>
-              <option value="CANCEL_RESTORE">Hoàn kho đơn hủy (+)</option>
-            </select>
-          )}
+              <History className="w-3.5 h-3.5" />
+              <span>Sổ cái biến động ({stockHistories.length})</span>
+            </button>
+          </div>
 
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo tên SP, mã SKU hoặc lý do..."
-              className="w-full h-9 pl-9 pr-3.5 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
-            />
+          <div className="flex flex-wrap items-center gap-2.5 flex-1 justify-end">
+            {activeTab === 'STOCK_LIST' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setOnlyLowStock((prev) => !prev);
+                  setStockPage(1);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                  onlyLowStock
+                    ? 'bg-amber-50 border-amber-300 text-amber-800'
+                    : 'bg-[#f4f4f5] border-transparent text-zinc-600 hover:text-zinc-900'
+                }`}
+              >
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Chỉ hiện cảnh báo sắp hết</span>
+              </button>
+            ) : (
+              <select
+                value={historyTypeFilter}
+                onChange={(e) => {
+                  setHistoryTypeFilter(
+                    e.target.value as 'ALL' | StockMovementType
+                  );
+                  setHistoryPage(1);
+                }}
+                className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none"
+              >
+                <option value="ALL">Tất cả loại biến động</option>
+                <option value="NhapTang">Nhập kho (+)</option>
+                <option value="XuatBan">Xuất bán đơn hàng (-)</option>
+                <option value="DieuChinhGiam">Điều chỉnh giảm (-)</option>
+                <option value="HoanDon">Hoàn kho đơn hủy (+)</option>
+              </select>
+            )}
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setStockPage(1);
+                  setHistoryPage(1);
+                }}
+                placeholder="Tìm theo tên SP, mã SKU hoặc lý do..."
+                className="w-full h-9 pl-9 pr-3.5 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
+              />
+            </div>
           </div>
         </div>
+
+        {/* Extra Filters for History Ledger (ISS-12: Product & Date Range) */}
+        {activeTab === 'HISTORY' && (
+          <div className="pt-2.5 border-t border-zinc-100 flex flex-wrap items-center gap-2.5">
+            <select
+              value={historyProductFilter}
+              onChange={(e) => {
+                setHistoryProductFilter(e.target.value);
+                setHistoryPage(1);
+              }}
+              className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none max-w-[220px]"
+            >
+              <option value="ALL">Tất cả sản phẩm</option>
+              {activeProducts.map((p) => (
+                <option key={p.id} value={p.id}>
+                  [{p.code}] {p.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <span>Từ ngày:</span>
+              <input
+                type="date"
+                value={historyDateFrom}
+                onChange={(e) => {
+                  setHistoryDateFrom(e.target.value);
+                  setHistoryPage(1);
+                }}
+                className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs text-zinc-700 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <span>Đến ngày:</span>
+              <input
+                type="date"
+                value={historyDateTo}
+                onChange={(e) => {
+                  setHistoryDateTo(e.target.value);
+                  setHistoryPage(1);
+                }}
+                className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs text-zinc-700 focus:outline-none"
+              />
+            </div>
+
+            {(historyProductFilter !== 'ALL' ||
+              historyDateFrom ||
+              historyDateTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setHistoryProductFilter('ALL');
+                  setHistoryDateFrom('');
+                  setHistoryDateTo('');
+                  setHistoryPage(1);
+                }}
+                className="px-3 py-1.5 rounded-full text-xs font-medium text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100"
+              >
+                Xóa lọc
+              </button>
+            )}
+
+            {historyDateInvalid && (
+              <span className="text-xs text-rose-600 font-medium">
+                Ngày bắt đầu không được lớn hơn ngày kết thúc.
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* TAB 1: STOCK LIST */}
       {activeTab === 'STOCK_LIST' && (
-        <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
-                  <th className="py-3 px-4">Sản phẩm</th>
-                  <th className="py-3 px-4">Tồn thực tế</th>
-                  <th className="py-3 px-4">Ngưỡng tối thiểu</th>
-                  <th className="py-3 px-4">Trạng thái tồn</th>
-                  <th className="py-3 px-4 text-right">Thao tác kho</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 text-xs">
-                {filteredProducts.map((product) => {
-                  const isOut = product.stock === 0;
-                  const isLow =
-                    !isOut && product.stock <= product.minStockThreshold;
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
+                    <th className="py-3 px-4">Sản phẩm</th>
+                    <th className="py-3 px-4">Tồn thực tế</th>
+                    <th className="py-3 px-4">Ngưỡng tối thiểu</th>
+                    <th className="py-3 px-4">Trạng thái tồn</th>
+                    <th className="py-3 px-4 text-right">Thao tác kho</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 text-xs">
+                  {paginatedProducts.map((product) => {
+                    const isOut = product.stock === 0;
+                    const isLow =
+                      !isOut && product.stock <= product.minStockThreshold;
 
-                  return (
-                    <tr
-                      key={product.id}
-                      className="hover:bg-zinc-50/70 transition-colors"
-                    >
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <img
-                            src={product.imageUrl}
-                            alt={product.name}
-                            className="w-10 h-10 rounded-xl object-cover bg-zinc-100 border border-zinc-200/60 shrink-0"
-                          />
-                          <div>
-                            <div className="font-semibold text-zinc-900">
-                              {product.name}
-                            </div>
-                            <div className="text-[11px] font-mono text-zinc-400">
-                              {product.code}
+                    return (
+                      <tr
+                        key={product.id}
+                        className="hover:bg-zinc-50/70 transition-colors"
+                      >
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              className="w-10 h-10 rounded-xl object-cover bg-zinc-100 border border-zinc-200/60 shrink-0"
+                            />
+                            <div>
+                              <div className="font-semibold text-zinc-900">
+                                {product.name}
+                              </div>
+                              <div className="text-[11px] font-mono text-zinc-400">
+                                {product.code}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-4">
-                        <span className="text-sm font-bold text-zinc-900">
-                          {product.stock}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setThresholdProduct(product);
-                            setThresholdValue(String(product.minStockThreshold));
-                          }}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#f4f4f5] hover:bg-zinc-200/80 text-zinc-700 font-medium"
-                        >
-                          <span>≤ {product.minStockThreshold}</span>
-                          <SlidersHorizontal className="w-3 h-3 text-zinc-400" />
-                        </button>
-                      </td>
-
-                      <td className="py-3 px-4">
-                        {isOut ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/60">
-                            Hết hàng
+                        <td className="py-3 px-4">
+                          <span className="text-sm font-bold text-zinc-900">
+                            {product.stock}
                           </span>
-                        ) : isLow ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/60">
-                            Sắp hết hàng
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                            An toàn
-                          </span>
-                        )}
-                      </td>
+                        </td>
 
-                      <td className="py-3 px-4 text-right">
-                        <div className="inline-flex items-center gap-1.5">
+                        <td className="py-3 px-4">
                           <button
                             type="button"
-                            onClick={() => openImportModalFor(product.id)}
-                            className="px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold"
+                            onClick={() => {
+                              setThresholdProduct(product);
+                              setThresholdValue(String(product.minStockThreshold));
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#f4f4f5] hover:bg-zinc-200/80 text-zinc-700 font-medium"
                           >
-                            + Nhập kho
+                            <span>≤ {product.minStockThreshold}</span>
+                            <SlidersHorizontal className="w-3 h-3 text-zinc-400" />
                           </button>
-                          <button
-                            type="button"
-                            disabled={product.stock === 0}
-                            onClick={() => openAdjustModalFor(product.id)}
-                            className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40 text-zinc-700 text-[11px] font-medium"
-                          >
-                            - Xuất giảm
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          {isOut ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200/60">
+                              Hết hàng
+                            </span>
+                          ) : isLow ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/60">
+                              Sắp hết hàng
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                              An toàn
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-4 text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openImportModalFor(product.id)}
+                              className="px-3 py-1.5 rounded-full bg-zinc-900 hover:bg-zinc-800 text-white text-[11px] font-semibold"
+                            >
+                              + Nhập kho
+                            </button>
+                            <button
+                              type="button"
+                              disabled={product.stock === 0}
+                              onClick={() => openAdjustModalFor(product.id)}
+                              className="px-3 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 disabled:opacity-40 text-zinc-700 text-[11px] font-medium"
+                            >
+                              - Xuất giảm
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          <PaginationBar
+            currentPage={stockPage}
+            totalItems={filteredProducts.length}
+            pageSize={stockPageSize}
+            onPageChange={setStockPage}
+          />
         </div>
       )}
 
       {/* TAB 2: STOCK MOVEMENT LEDGER */}
       {activeTab === 'HISTORY' && (
-        <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
-                  <th className="py-3 px-4">Thời gian</th>
-                  <th className="py-3 px-4">Sản phẩm</th>
-                  <th className="py-3 px-4">Loại giao dịch</th>
-                  <th className="py-3 px-4">Biến động tồn</th>
-                  <th className="py-3 px-4">Chi tiết / Lý do</th>
-                  <th className="py-3 px-4">Người thực hiện</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 text-xs">
-                {filteredHistories.map((h) => {
-                  const prd = products.find((p) => p.id === h.productId);
-                  const meta = MOVEMENT_META[h.type];
-                  const isPositive = h.quantityChange > 0;
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-zinc-200/80 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-[11px] font-semibold text-zinc-400 uppercase tracking-wider bg-[#f8f9fa]/60">
+                    <th className="py-3 px-4">Thời gian</th>
+                    <th className="py-3 px-4">Sản phẩm</th>
+                    <th className="py-3 px-4">Loại giao dịch</th>
+                    <th className="py-3 px-4">Biến động tồn</th>
+                    <th className="py-3 px-4">Chi tiết / Lý do</th>
+                    <th className="py-3 px-4">Người thực hiện</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 text-xs">
+                  {paginatedHistories.map((h) => {
+                    const prd = products.find((p) => p.id === h.productId);
+                    const meta = MOVEMENT_META[h.type];
+                    const isPositive = h.quantityChange > 0;
 
-                  return (
-                    <tr key={h.id} className="hover:bg-zinc-50/70">
-                      <td className="py-3 px-4 text-zinc-500 whitespace-nowrap">
-                        {formatDateTime(h.createdAt)}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-zinc-900">
-                          {prd?.name || h.productId}
-                        </div>
-                        <div className="text-[11px] font-mono text-zinc-400">
-                          {prd?.code}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${meta.badgeClass}`}
-                        >
-                          {meta.label}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-mono">
-                        <span className="text-zinc-400">{h.stockBefore}</span>
-                        <span className="mx-1.5 text-zinc-300">→</span>
-                        <span
-                          className={`font-bold ${
-                            isPositive ? 'text-emerald-600' : 'text-rose-600'
-                          }`}
-                        >
-                          {isPositive ? `+${h.quantityChange}` : h.quantityChange}
-                        </span>
-                        <span className="mx-1.5 text-zinc-300">=</span>
-                        <span className="font-bold text-zinc-900">
-                          {h.stockAfter}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-zinc-600">
-                        <div>{h.reasonOrNote}</div>
-                        {h.supplier && (
-                          <div className="text-[11px] text-zinc-400">
-                            NCC: {h.supplier}
-                            {h.importPrice
-                              ? ` · Giá nhập: ${formatVND(h.importPrice)}`
-                              : ''}
+                    return (
+                      <tr key={h.id} className="hover:bg-zinc-50/70">
+                        <td className="py-3 px-4 text-zinc-500 whitespace-nowrap">
+                          {formatDateTime(h.createdAt)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-zinc-900">
+                            {prd?.name || h.productId}
                           </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-zinc-600 font-medium">
-                        {h.actorName}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <div className="text-[11px] font-mono text-zinc-400">
+                            {prd?.code}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${meta.badgeClass}`}
+                          >
+                            {meta.label}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono">
+                          <span className="text-zinc-400">{h.stockBefore}</span>
+                          <span className="mx-1.5 text-zinc-300">→</span>
+                          <span
+                            className={`font-bold ${
+                              isPositive ? 'text-emerald-600' : 'text-rose-600'
+                            }`}
+                          >
+                            {isPositive ? `+${h.quantityChange}` : h.quantityChange}
+                          </span>
+                          <span className="mx-1.5 text-zinc-300">=</span>
+                          <span className="font-bold text-zinc-900">
+                            {h.stockAfter}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-zinc-600">
+                          <div>{h.reasonOrNote}</div>
+                          {(h.supplier || h.importPrice) && (
+                            <div className="text-[11px] text-zinc-400">
+                              {h.supplier ? `NCC: ${h.supplier}` : ''}
+                              {h.supplier && h.importPrice ? ' · ' : ''}
+                              {h.importPrice
+                                ? `Giá nhập: ${formatVND(h.importPrice)}`
+                                : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-zinc-600 font-medium">
+                          {h.actorName}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
+
+          <PaginationBar
+            currentPage={historyPage}
+            totalItems={filteredHistories.length}
+            pageSize={historyPageSize}
+            onPageChange={setHistoryPage}
+          />
         </div>
       )}
 
@@ -610,13 +759,14 @@ export const InventoryManagementPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                  Đơn giá nhập (VNĐ) *
+                  Đơn giá nhập (tùy chọn)
                 </label>
                 <input
                   type="number"
                   min={0}
                   value={importPrice}
                   onChange={(e) => setImportPrice(e.target.value)}
+                  placeholder="VNĐ"
                   className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
                 />
               </div>
@@ -624,24 +774,26 @@ export const InventoryManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Nhà cung cấp *
+                Nhà cung cấp (tùy chọn)
               </label>
               <input
                 type="text"
                 value={importSupplier}
                 onChange={(e) => setImportSupplier(e.target.value)}
+                placeholder="VD: Nhà phân phối chính hãng"
                 className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Ghi chú phiếu nhập
+                Ghi chú / Lý do nhập *
               </label>
               <input
                 type="text"
                 value={importNote}
                 onChange={(e) => setImportNote(e.target.value)}
+                placeholder="Nhập ghi chú phiếu nhập..."
                 className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
               />
             </div>

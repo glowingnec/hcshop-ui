@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { IS_DEMO_MODE, ROLE_LABELS } from '../../utils/formatters';
 
 type AuthMode = 'LOGIN' | 'REGISTER' | 'FORGOT';
 
@@ -78,8 +79,10 @@ export const AuthPage: React.FC = () => {
     setFeedback({ ok: res.ok, text: res.message });
     if (res.ok && res.user) {
       setTimeout(() => {
-        if (res.user?.role === 'ADMIN' || res.user?.role === 'STAFF') {
+        if (res.user?.role === 'QuanLy') {
           navigate('/portal');
+        } else if (res.user?.role === 'NhanVien') {
+          navigate('/portal/orders');
         } else {
           navigate('/');
         }
@@ -95,8 +98,8 @@ export const AuthPage: React.FC = () => {
       phone: regPhone,
       password: regPassword,
       confirmPassword: regConfirm,
-      securityQuestion: regAnswer.trim() ? regQuestion : undefined,
-      securityAnswer: regAnswer.trim() || undefined,
+      securityQuestion: regQuestion,
+      securityAnswer: regAnswer,
     });
     setFeedback({ ok: res.ok, text: res.message });
     if (res.ok) {
@@ -341,11 +344,11 @@ export const AuthPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Optional Security Question setup during registration */}
+              {/* Required Security Question setup during registration (UC-01) */}
               <div className="p-4 rounded-2xl bg-[#f8f9fa] border border-zinc-200/70 space-y-3">
                 <div className="flex items-center gap-2 text-[12px] font-semibold text-zinc-800">
                   <ShieldQuestion className="w-4 h-4 text-blue-600" />
-                  <span>Câu hỏi bảo mật hỗ trợ khôi phục mật khẩu (Tùy chọn)</span>
+                  <span>Câu hỏi &amp; câu trả lời bảo mật (bắt buộc) *</span>
                 </div>
                 <select
                   value={regQuestion}
@@ -360,9 +363,10 @@ export const AuthPage: React.FC = () => {
                 </select>
                 <input
                   type="text"
+                  required
                   value={regAnswer}
                   onChange={(e) => setRegAnswer(e.target.value)}
-                  placeholder="Nhập câu trả lời bảo mật của bạn..."
+                  placeholder="Nhập câu trả lời bảo mật để dùng khi quên mật khẩu *"
                   className="w-full h-9 px-3 rounded-xl bg-white border border-zinc-200 text-[12px] text-zinc-800 focus:outline-none"
                 />
               </div>
@@ -483,7 +487,7 @@ export const AuthPage: React.FC = () => {
               </span>
               {currentUser && (
                 <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                  {currentUser.role}
+                  {ROLE_LABELS[currentUser.role]}
                 </span>
               )}
             </div>
@@ -511,79 +515,82 @@ export const AuthPage: React.FC = () => {
               </div>
             ) : (
               <p className="text-[13px] text-zinc-500">
-                Bạn đang ở chế độ <strong>Khách vãng lai (Guest)</strong>. Hãy đăng nhập bên trái hoặc chọn nhanh tài khoản mẫu bên dưới.
+                Bạn đang ở chế độ <strong>Khách vãng lai (Guest)</strong>. Hãy đăng nhập bên trái
+                {IS_DEMO_MODE ? ' hoặc chọn nhanh tài khoản mẫu bên dưới.' : '.'}
               </p>
             )}
           </div>
 
-          {/* Quick-Fill Test Accounts */}
-          <div className="bg-white rounded-3xl border border-zinc-200/80 p-5 space-y-3.5">
-            <div className="flex items-center gap-2 text-[13px] font-bold text-zinc-900">
-              <Sparkles className="w-4 h-4 text-blue-600" />
-              <span>Tài khoản mẫu (Chọn nhanh)</span>
-            </div>
+          {/* Quick-Fill Test Accounts (gated by VITE_DEMO_MODE) */}
+          {IS_DEMO_MODE && (
+            <div className="bg-white rounded-3xl border border-zinc-200/80 p-5 space-y-3.5">
+              <div className="flex items-center gap-2 text-[13px] font-bold text-zinc-900">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                <span>Tài khoản mẫu (Chọn nhanh)</span>
+              </div>
 
-            <div className="space-y-2">
-              {users.map((u) => (
-                <div
-                  key={u.id}
-                  className="p-3 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60 flex items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[13px] font-semibold text-zinc-900 truncate">
-                        {u.fullName}
-                      </span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-200/70 text-zinc-700">
-                        {u.role}
-                      </span>
-                      {u.isLocked && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
-                          Đã khóa
+              <div className="space-y-2">
+                {users.map((u) => (
+                  <div
+                    key={u.id}
+                    className="p-3 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-semibold text-zinc-900 truncate">
+                          {u.fullName}
                         </span>
-                      )}
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-zinc-200/70 text-zinc-700">
+                          {ROLE_LABELS[u.role]}
+                        </span>
+                        {u.isLocked && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                            Đã khóa
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                        {u.email} • MK: <code className="text-zinc-800">{u.passwordHash}</code>
+                        {u.securityAnswerHash && (
+                          <>
+                            {' '}
+                            • Đáp án BM: <code className="text-blue-700">{u.securityAnswerHash}</code>
+                          </>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-zinc-500 truncate mt-0.5">
-                      {u.email} • MK: <code className="text-zinc-800">{u.passwordHash}</code>
-                      {u.securityAnswerHash && (
-                        <>
-                          {' '}
-                          • Đáp án BM: <code className="text-blue-700">{u.securityAnswerHash}</code>
-                        </>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        switchMode('LOGIN');
-                        setLoginId(u.email);
-                        setLoginPassword(u.passwordHash);
-                      }}
-                      className="px-2.5 py-1 rounded-full bg-white border border-zinc-200 hover:border-zinc-900 text-[11px] font-medium text-zinc-800 transition-colors"
-                    >
-                      Chọn
-                    </button>
-                    {u.securityQuestion && (
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        title="Khôi phục mật khẩu"
                         onClick={() => {
-                          switchMode('FORGOT');
-                          setRecoveryIdentifier(u.email);
+                          switchMode('LOGIN');
+                          setLoginId(u.email);
+                          setLoginPassword(u.passwordHash);
                         }}
-                        className="p-1.5 rounded-full bg-white border border-zinc-200 hover:border-blue-600 text-blue-600"
+                        className="px-2.5 py-1 rounded-full bg-white border border-zinc-200 hover:border-zinc-900 text-[11px] font-medium text-zinc-800 transition-colors"
                       >
-                        <KeyRound className="w-3.5 h-3.5" />
+                        Chọn
                       </button>
-                    )}
+                      {u.securityQuestion && (
+                        <button
+                          type="button"
+                          title="Khôi phục mật khẩu"
+                          onClick={() => {
+                            switchMode('FORGOT');
+                            setRecoveryIdentifier(u.email);
+                          }}
+                          className="p-1.5 rounded-full bg-white border border-zinc-200 hover:border-blue-600 text-blue-600"
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

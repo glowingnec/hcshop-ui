@@ -14,6 +14,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { ImageUploadField } from '../../components/common/ImageUploadField';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { formatDate, formatVND } from '../../utils/formatters';
 
 export const ProductDetailPage: React.FC = () => {
@@ -36,15 +39,22 @@ export const ProductDetailPage: React.FC = () => {
   const product = products.find((p) => p.id === id && p.isVisible && !p.isDeleted);
 
   const [quantity, setQuantity] = useState(1);
-  const [starFilter, setStarFilter] = useState<number | 'ALL' | 'REPLIED'>('ALL');
+  const [starFilter, setStarFilter] = useState<
+    number | 'ALL' | 'REPLIED' | 'WITH_IMAGES'
+  >('ALL');
+  const [reviewSort, setReviewSort] = useState<'newest' | 'oldest'>('newest');
+  const [reviewPage, setReviewPage] = useState(1);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Review Form State (UC-53 & UC-54)
   const [isWritingReview, setIsWritingReview] = useState(false);
   const [ratingInput, setRatingInput] = useState(5);
   const [commentInput, setCommentInput] = useState('');
+  const [reviewImages, setReviewImages] = useState<string[]>([]);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [confirmDeleteReviewId, setConfirmDeleteReviewId] = useState<string | null>(null);
+
+  const reviewPageSize = 5;
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -57,12 +67,22 @@ export const ProductDetailPage: React.FC = () => {
   );
 
   const filteredReviews = useMemo(() => {
-    return productReviews.filter((r) => {
+    const list = productReviews.filter((r) => {
       if (starFilter === 'ALL') return true;
       if (starFilter === 'REPLIED') return Boolean(r.storeReply);
+      if (starFilter === 'WITH_IMAGES') return Boolean(r.images && r.images.length > 0);
       return r.rating === starFilter;
     });
-  }, [productReviews, starFilter]);
+    return [...list].sort((a, b) => {
+      const diff = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return reviewSort === 'newest' ? -diff : diff;
+    });
+  }, [productReviews, starFilter, reviewSort]);
+
+  const paginatedReviews = useMemo(() => {
+    const start = (reviewPage - 1) * reviewPageSize;
+    return filteredReviews.slice(start, start + reviewPageSize);
+  }, [filteredReviews, reviewPage]);
 
   const averageRating = useMemo(() => {
     if (productReviews.length === 0) return 0;
@@ -84,7 +104,7 @@ export const ProductDetailPage: React.FC = () => {
     return orders.some(
       (o) =>
         o.userId === currentUser.id &&
-        o.status === 'COMPLETED' &&
+        o.status === 'HoanThanh' &&
         o.items.some((item) => item.productId === id)
     );
   }, [orders, currentUser, id]);
@@ -123,16 +143,18 @@ export const ProductDetailPage: React.FC = () => {
     if (myExistingReview) {
       setRatingInput(myExistingReview.rating);
       setCommentInput(myExistingReview.comment);
+      setReviewImages(myExistingReview.images || []);
     } else {
       setRatingInput(5);
       setCommentInput('');
+      setReviewImages([]);
     }
     setIsWritingReview(true);
   };
 
   const handleReviewSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = submitReview(product.id, ratingInput, commentInput);
+    const res = submitReview(product.id, ratingInput, commentInput, reviewImages);
     if (!res.ok) {
       setReviewError(res.message);
       return;
@@ -226,28 +248,11 @@ export const ProductDetailPage: React.FC = () => {
               <span className="text-2xl font-bold text-zinc-900">
                 {formatVND(product.price)}
               </span>
-              {product.originalPrice && (
-                <span className="text-sm text-zinc-400 line-through">
-                  {formatVND(product.originalPrice)}
-                </span>
-              )}
             </div>
 
             <p className="text-xs text-zinc-500 leading-relaxed">
               {product.description}
             </p>
-
-            {/* Specifications Table */}
-            {product.specs && (
-              <div className="pt-2 border-t border-zinc-100 space-y-2">
-                {Object.entries(product.specs).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-400">{k}</span>
-                    <span className="font-medium text-zinc-800">{v}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* Quantity Selector & Add to Cart (UC-30) */}
@@ -330,35 +335,53 @@ export const ProductDetailPage: React.FC = () => {
           )}
         </div>
 
-        {/* Filter Pills (UC-52) */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {[
-            { key: 'ALL' as const, label: 'Tất cả' },
-            { key: 5 as const, label: '5 sao' },
-            { key: 4 as const, label: '4 sao' },
-            { key: 3 as const, label: '3 sao' },
-            { key: 2 as const, label: '2 sao' },
-            { key: 1 as const, label: '1 sao' },
-            { key: 'REPLIED' as const, label: 'Có phản hồi' },
-          ].map((item) => {
-            const active = starFilter === item.key;
-            return (
-              <button
-                key={String(item.key)}
-                onClick={() => setStarFilter(item.key)}
-                className={`h-7 px-3 rounded-full text-xs font-medium transition-colors ${
-                  active
-                    ? 'bg-zinc-900 text-white'
-                    : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70'
-                }`}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+        {/* Filter Pills & Sort (UC-52, ISS-12) */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[
+              { key: 'ALL' as const, label: 'Tất cả' },
+              { key: 5 as const, label: '5 sao' },
+              { key: 4 as const, label: '4 sao' },
+              { key: 3 as const, label: '3 sao' },
+              { key: 2 as const, label: '2 sao' },
+              { key: 1 as const, label: '1 sao' },
+              { key: 'WITH_IMAGES' as const, label: 'Có hình ảnh' },
+              { key: 'REPLIED' as const, label: 'Có phản hồi' },
+            ].map((item) => {
+              const active = starFilter === item.key;
+              return (
+                <button
+                  key={String(item.key)}
+                  onClick={() => {
+                    setStarFilter(item.key);
+                    setReviewPage(1);
+                  }}
+                  className={`h-7 px-3 rounded-full text-xs font-medium transition-colors ${
+                    active
+                      ? 'bg-zinc-900 text-white'
+                      : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200/70'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <select
+            value={reviewSort}
+            onChange={(e) => {
+              setReviewSort(e.target.value as 'newest' | 'oldest');
+              setReviewPage(1);
+            }}
+            className="h-7 px-3 rounded-full bg-zinc-100 text-xs font-medium text-zinc-700 focus:outline-none"
+          >
+            <option value="newest">Mới nhất</option>
+            <option value="oldest">Cũ nhất</option>
+          </select>
         </div>
 
-        {/* Inline Write/Edit Review Form (UC-53 & UC-54) */}
+        {/* Inline Write/Edit Review Form (UC-53 & UC-54, ISS-03, ISS-09) */}
         {isWritingReview && (
           <form
             onSubmit={handleReviewSubmit}
@@ -388,12 +411,27 @@ export const ProductDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <textarea
-              rows={3}
-              value={commentInput}
-              onChange={(e) => setCommentInput(e.target.value)}
-              placeholder="Nhập nhận xét của bạn về sản phẩm..."
-              className="w-full rounded-xl bg-white border border-zinc-200/80 p-3 text-xs text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400"
+            <div className="space-y-1">
+              <textarea
+                rows={3}
+                maxLength={2000}
+                value={commentInput}
+                onChange={(e) => setCommentInput(e.target.value)}
+                placeholder="Nhập nhận xét của bạn về sản phẩm..."
+                className="w-full rounded-xl bg-white border border-zinc-200/80 p-3 text-xs text-zinc-800 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400"
+              />
+              <div className="text-right text-[11px] text-zinc-400">
+                {commentInput.length} / 2000 ký tự
+              </div>
+            </div>
+
+            <ImageUploadField
+              multiple
+              label="Hình ảnh thực tế (tùy chọn)"
+              values={reviewImages}
+              onChange={setReviewImages}
+              maxFiles={4}
+              helperText="Tối đa 4 ảnh (.JPG, .PNG, .WEBP, mỗi ảnh ≤ 5MB)"
             />
 
             {reviewError && (
@@ -425,10 +463,11 @@ export const ProductDetailPage: React.FC = () => {
             Không có đánh giá phù hợp với bộ lọc.
           </div>
         ) : (
+          <>
           <div className="divide-y divide-zinc-100">
-            {filteredReviews.map((rev) => {
+            {paginatedReviews.map((rev) => {
               const isOwner = currentUser?.id === rev.userId;
-              const canDelete = isOwner || currentUser?.role === 'ADMIN';
+              const canDelete = isOwner || currentUser?.role === 'QuanLy';
               const hasLiked = currentUser
                 ? rev.likedByUserIds.includes(currentUser.id)
                 : false;
@@ -437,7 +476,15 @@ export const ProductDetailPage: React.FC = () => {
                 <div key={rev.id} className="py-4 first:pt-0 last:pb-0 space-y-2.5">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-sky-200 via-indigo-300 to-purple-300 shrink-0" />
+                      {rev.userAvatar ? (
+                        <img
+                          src={rev.userAvatar}
+                          alt={rev.userName}
+                          className="w-7 h-7 rounded-full object-cover shrink-0 border border-zinc-200"
+                        />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-sky-200 via-indigo-300 to-purple-300 shrink-0" />
+                      )}
                       <div>
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-semibold text-zinc-900">
@@ -494,24 +541,13 @@ export const ProductDetailPage: React.FC = () => {
                       )}
 
                       {canDelete && (
-                        <>
-                          {confirmDeleteReviewId === rev.id ? (
-                            <button
-                              onClick={() => handleConfirmDelete(rev.id)}
-                              className="h-7 px-2.5 rounded-full bg-rose-500 text-white text-[11px] font-medium"
-                            >
-                              Xác nhận xóa
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmDeleteReviewId(rev.id)}
-                              className="h-7 px-2 rounded-full bg-zinc-100 hover:bg-rose-50 hover:text-rose-600 text-zinc-500 transition-colors"
-                              aria-label="Xóa đánh giá"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
-                        </>
+                        <button
+                          onClick={() => setConfirmDeleteReviewId(rev.id)}
+                          className="h-7 px-2 rounded-full bg-zinc-100 hover:bg-rose-50 hover:text-rose-600 text-zinc-500 transition-colors"
+                          aria-label="Xóa đánh giá"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       )}
                     </div>
                   </div>
@@ -519,6 +555,20 @@ export const ProductDetailPage: React.FC = () => {
                   <p className="text-xs text-zinc-700 leading-relaxed pl-9">
                     {rev.comment}
                   </p>
+
+                  {/* Review Images (ISS-03) */}
+                  {rev.images && rev.images.length > 0 && (
+                    <div className="pl-9 flex flex-wrap gap-2">
+                      {rev.images.map((imgUrl, idx) => (
+                        <img
+                          key={idx}
+                          src={imgUrl}
+                          alt={`Ảnh đánh giá ${idx + 1}`}
+                          className="w-16 h-16 rounded-xl object-cover border border-zinc-200"
+                        />
+                      ))}
+                    </div>
+                  )}
 
                   {/* Store Reply Box (UC-51 & UC-57) */}
                   {rev.storeReply && (
@@ -541,8 +591,30 @@ export const ProductDetailPage: React.FC = () => {
               );
             })}
           </div>
+
+          <PaginationBar
+            currentPage={reviewPage}
+            totalItems={filteredReviews.length}
+            pageSize={reviewPageSize}
+            onPageChange={setReviewPage}
+            itemLabel="đánh giá"
+          />
+          </>
         )}
       </div>
+
+      {/* Confirm Delete Review Modal (ISS-13, UC-55) */}
+      <ConfirmModal
+        open={Boolean(confirmDeleteReviewId)}
+        title="Xóa đánh giá sản phẩm?"
+        description="Hành động này sẽ gỡ bỏ đánh giá khỏi sản phẩm và không thể hoàn tác."
+        confirmLabel="Xóa đánh giá"
+        variant="danger"
+        onCancel={() => setConfirmDeleteReviewId(null)}
+        onConfirm={() => {
+          if (confirmDeleteReviewId) handleConfirmDelete(confirmDeleteReviewId);
+        }}
+      />
 
       {/* Related Products Row */}
       <div className="space-y-4">

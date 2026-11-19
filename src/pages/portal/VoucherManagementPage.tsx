@@ -12,6 +12,8 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { ConfirmModal } from '../../components/common/ConfirmModal';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { DiscountType, Voucher } from '../../types/domain';
 import { formatVND, formatDate } from '../../utils/formatters';
 
@@ -26,20 +28,28 @@ export const VoucherManagementPage: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'DELETE' | 'TOGGLE';
+    voucher: Voucher;
+  } | null>(null);
+
+  const pageSize = 6;
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState<Voucher | null>(null);
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
-  const [discountType, setDiscountType] = useState<DiscountType>('PERCENT');
+  const [discountType, setDiscountType] = useState<DiscountType>('PhanTram');
   const [discountValue, setDiscountValue] = useState('10');
   const [maxDiscountAmount, setMaxDiscountAmount] = useState('200000');
   const [minOrderValue, setMinOrderValue] = useState('500000');
   const [startDate, setStartDate] = useState('2026-01-01');
   const [endDate, setEndDate] = useState('2027-12-31');
   const [usageLimit, setUsageLimit] = useState('100');
+  const [isActiveOnCreate, setIsActiveOnCreate] = useState(true);
 
   const filteredVouchers = useMemo(() => {
     return vouchers.filter((v) => {
@@ -56,17 +66,23 @@ export const VoucherManagementPage: React.FC = () => {
     });
   }, [vouchers, statusFilter, searchQuery]);
 
+  const paginatedVouchers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredVouchers.slice(start, start + pageSize);
+  }, [filteredVouchers, currentPage]);
+
   const openCreateModal = () => {
     setEditingVoucher(null);
     setCode('HCSHOP20');
-    setDescription('Giảm 20% tối đa 300.000đ cho đơn hàng từ 1.000.000đ');
-    setDiscountType('PERCENT');
+    setDescription('');
+    setDiscountType('PhanTram');
     setDiscountValue('20');
     setMaxDiscountAmount('300000');
     setMinOrderValue('1000000');
     setStartDate('2026-01-01');
     setEndDate('2027-12-31');
     setUsageLimit('50');
+    setIsActiveOnCreate(true);
     setShowModal(true);
   };
 
@@ -96,6 +112,7 @@ export const VoucherManagementPage: React.FC = () => {
       startDate,
       endDate,
       usageLimit: Number(usageLimit),
+      ...(editingVoucher ? {} : { isActive: isActiveOnCreate }),
     };
 
     const res = editingVoucher
@@ -177,7 +194,10 @@ export const VoucherManagementPage: React.FC = () => {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setStatusFilter(tab.id)}
+              onClick={() => {
+                setStatusFilter(tab.id);
+                setCurrentPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 statusFilter === tab.id
                   ? 'bg-white text-zinc-900 shadow-sm'
@@ -194,7 +214,10 @@ export const VoucherManagementPage: React.FC = () => {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Tìm theo mã code hoặc mô tả..."
             className="w-full h-9 pl-9 pr-3.5 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
           />
@@ -203,7 +226,7 @@ export const VoucherManagementPage: React.FC = () => {
 
       {/* Voucher Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredVouchers.map((voucher) => {
+        {paginatedVouchers.map((voucher) => {
           const remaining = Math.max(0, voucher.usageLimit - voucher.usedCount);
           const usagePercent = Math.min(
             100,
@@ -241,10 +264,10 @@ export const VoucherManagementPage: React.FC = () => {
 
                 <div>
                   <div className="text-base font-bold text-zinc-900">
-                    {voucher.discountType === 'PERCENT'
+                    {voucher.discountType === 'PhanTram'
                       ? `Giảm ${voucher.discountValue}%`
                       : `Giảm ${formatVND(voucher.discountValue)}`}
-                    {voucher.discountType === 'PERCENT' &&
+                    {voucher.discountType === 'PhanTram' &&
                       voucher.maxDiscountAmount && (
                         <span className="text-xs font-normal text-zinc-500 ml-1.5">
                           (Tối đa {formatVND(voucher.maxDiscountAmount)})
@@ -290,10 +313,9 @@ export const VoucherManagementPage: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      const res = toggleVoucherActive(voucher.id);
-                      setFeedback({ ok: res.ok, text: res.message });
-                    }}
+                    onClick={() =>
+                      setConfirmAction({ type: 'TOGGLE', voucher })
+                    }
                     title={voucher.isActive ? 'Tạm ngừng áp dụng' : 'Kích hoạt lại'}
                     className="p-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
                   >
@@ -309,10 +331,9 @@ export const VoucherManagementPage: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      const res = deleteVoucher(voucher.id);
-                      setFeedback({ ok: res.ok, text: res.message });
-                    }}
+                    onClick={() =>
+                      setConfirmAction({ type: 'DELETE', voucher })
+                    }
                     title="Xóa mã giảm giá"
                     className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600"
                   >
@@ -324,6 +345,13 @@ export const VoucherManagementPage: React.FC = () => {
           );
         })}
       </div>
+
+      <PaginationBar
+        currentPage={currentPage}
+        totalItems={filteredVouchers.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+      />
 
       {/* Create / Edit Voucher Modal */}
       {showModal && (
@@ -347,7 +375,7 @@ export const VoucherManagementPage: React.FC = () => {
 
             {editingVoucher && editingVoucher.usedCount > 0 && (
               <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200/70 p-2.5 rounded-xl">
-                Mã này đã được áp dụng cho {editingVoucher.usedCount} đơn hàng. Mã code và loại giảm giá được cố định để bảo toàn dữ liệu đối soát.
+                Mã này đã được áp dụng cho {editingVoucher.usedCount} đơn hàng. Mã code, loại giảm giá, mức giảm, giảm tối đa và đơn tối thiểu được cố định để bảo toàn dữ liệu đối soát.
               </p>
             )}
 
@@ -376,8 +404,8 @@ export const VoucherManagementPage: React.FC = () => {
                   onChange={(e) => setDiscountType(e.target.value as DiscountType)}
                   className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs disabled:opacity-60"
                 >
-                  <option value="PERCENT">Theo phần trăm (%)</option>
-                  <option value="FIXED">Số tiền cố định (VNĐ)</option>
+                  <option value="PhanTram">Theo phần trăm (%)</option>
+                  <option value="SoTien">Số tiền cố định (VNĐ)</option>
                 </select>
               </div>
             </div>
@@ -385,7 +413,7 @@ export const VoucherManagementPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                  {discountType === 'PERCENT' ? 'Mức giảm (%) *' : 'Số tiền giảm *'}
+                  {discountType === 'PhanTram' ? 'Mức giảm (%) *' : 'Số tiền giảm *'}
                 </label>
                 <input
                   type="number"
@@ -396,16 +424,17 @@ export const VoucherManagementPage: React.FC = () => {
                 />
               </div>
 
-              {discountType === 'PERCENT' && (
+              {discountType === 'PhanTram' && (
                 <div>
                   <label className="block text-xs font-semibold text-zinc-700 mb-1">
                     Giảm tối đa (VNĐ)
                   </label>
                   <input
                     type="number"
+                    disabled={Boolean(editingVoucher && editingVoucher.usedCount > 0)}
                     value={maxDiscountAmount}
                     onChange={(e) => setMaxDiscountAmount(e.target.value)}
-                    className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
+                    className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs disabled:opacity-60"
                   />
                 </div>
               )}
@@ -416,9 +445,10 @@ export const VoucherManagementPage: React.FC = () => {
                 </label>
                 <input
                   type="number"
+                  disabled={Boolean(editingVoucher && editingVoucher.usedCount > 0)}
                   value={minOrderValue}
                   onChange={(e) => setMinOrderValue(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
+                  className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs disabled:opacity-60"
                 />
               </div>
             </div>
@@ -461,15 +491,28 @@ export const VoucherManagementPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 mb-1">
-                Mô tả ưu đãi *
+                Mô tả ưu đãi (tùy chọn)
               </label>
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                placeholder="VD: Áp dụng cho khách hàng mới..."
                 className="w-full h-10 px-3 rounded-xl bg-[#f8f9fa] border border-zinc-200 text-xs"
               />
             </div>
+
+            {!editingVoucher && (
+              <label className="flex items-center gap-2 text-xs text-zinc-700 select-none cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isActiveOnCreate}
+                  onChange={(e) => setIsActiveOnCreate(e.target.checked)}
+                  className="rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                />
+                <span>Kích hoạt ngay sau khi tạo</span>
+              </label>
+            )}
 
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -489,6 +532,43 @@ export const VoucherManagementPage: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Confirm Delete / Toggle Modal */}
+      <ConfirmModal
+        open={Boolean(confirmAction)}
+        title={
+          confirmAction?.type === 'DELETE'
+            ? `Xóa mã giảm giá ${confirmAction.voucher.code}?`
+            : confirmAction?.voucher.isActive
+            ? `Tạm ngừng áp dụng mã ${confirmAction.voucher.code}?`
+            : `Kích hoạt lại mã ${confirmAction?.voucher.code}?`
+        }
+        description={
+          confirmAction?.type === 'DELETE'
+            ? `Bạn có chắc chắn muốn xóa mã giảm giá "${confirmAction.voucher.code}"? Hành động này không thể hoàn tác.`
+            : confirmAction?.voucher.isActive
+            ? `Khách hàng sẽ không thể áp dụng mã "${confirmAction.voucher.code}" cho các đơn hàng mới sau khi tạm ngừng.`
+            : `Mã "${confirmAction?.voucher.code}" sẽ được mở lại để khách hàng sử dụng trong thời hạn hiệu lực.`
+        }
+        variant={confirmAction?.type === 'DELETE' ? 'danger' : 'warning'}
+        confirmLabel={
+          confirmAction?.type === 'DELETE'
+            ? 'Xóa mã'
+            : confirmAction?.voucher.isActive
+            ? 'Tạm ngừng'
+            : 'Kích hoạt'
+        }
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (!confirmAction) return;
+          const res =
+            confirmAction.type === 'DELETE'
+              ? deleteVoucher(confirmAction.voucher.id)
+              : toggleVoucherActive(confirmAction.voucher.id);
+          setFeedback({ ok: res.ok, text: res.message });
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 };

@@ -5,12 +5,15 @@ import {
   Unlock,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  History,
   ShieldCheck,
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { User, UserRole } from '../../types/domain';
-import { formatDate } from '../../utils/formatters';
+import { formatDate, formatDateTime, ROLE_LABELS } from '../../utils/formatters';
 
 const LOCK_REASONS = [
   'Phát hiện hành vi đặt đơn ảo / bom hàng nhiều lần',
@@ -25,19 +28,25 @@ export const AccountManagementPage: React.FC = () => {
     currentUser,
     users,
     orders,
+    accountLockHistories,
     toggleAccountLock,
-    updateAccountRole,
   } = useApp();
 
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'LOCKED'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Lock Modal State
+  const pageSize = 8;
+
+  // Lock Modal State (UC-10, ISS-20)
   const [lockingUser, setLockingUser] = useState<User | null>(null);
   const [selectedReason, setSelectedReason] = useState(LOCK_REASONS[0]);
   const [customReason, setCustomReason] = useState('');
+
+  // Lock History Modal State (UC-10, ISS-20)
+  const [historyUser, setHistoryUser] = useState<User | null>(null);
 
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
@@ -57,6 +66,28 @@ export const AccountManagementPage: React.FC = () => {
       return true;
     });
   }, [users, roleFilter, statusFilter, searchQuery]);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredUsers.slice(start, start + pageSize);
+  }, [filteredUsers, currentPage]);
+
+  const lockingUserActiveOrders = useMemo(() => {
+    if (!lockingUser) return 0;
+    return orders.filter(
+      (o) =>
+        o.userId === lockingUser.id &&
+        (o.status === 'ChoXacNhan' ||
+          o.status === 'DaXacNhan' ||
+          o.status === 'DangChuanBi' ||
+          o.status === 'DangGiao')
+    ).length;
+  }, [lockingUser, orders]);
+
+  const selectedUserLockLogs = useMemo(() => {
+    if (!historyUser) return [];
+    return accountLockHistories.filter((h) => h.userId === historyUser.id);
+  }, [historyUser, accountLockHistories]);
 
   const handleConfirmLock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,10 +113,10 @@ export const AccountManagementPage: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold text-zinc-900 tracking-tight">
-            Quản lý tài khoản & Phân quyền
+            Quản lý tài khoản
           </h1>
           <p className="text-xs text-zinc-500 mt-0.5">
-            Tra cứu danh sách thành viên, phân quyền nhân sự và kiểm soát trạng thái hoạt động
+            Tra cứu danh sách thành viên, theo dõi lịch sử và kiểm soát trạng thái tài khoản khách hàng
           </p>
         </div>
 
@@ -132,15 +163,18 @@ export const AccountManagementPage: React.FC = () => {
           {(
             [
               { id: 'ALL', label: 'Tất cả' },
-              { id: 'CUSTOMER', label: 'Khách hàng' },
-              { id: 'STAFF', label: 'Nhân viên' },
-              { id: 'ADMIN', label: 'Quản lý' },
+              { id: 'KhachHang', label: 'Khách hàng' },
+              { id: 'NhanVien', label: 'Nhân viên' },
+              { id: 'QuanLy', label: 'Quản lý' },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
-              onClick={() => setRoleFilter(tab.id)}
+              onClick={() => {
+                setRoleFilter(tab.id);
+                setCurrentPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 roleFilter === tab.id
                   ? 'bg-white text-zinc-900 shadow-sm'
@@ -155,9 +189,10 @@ export const AccountManagementPage: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2.5 flex-1 justify-end">
           <select
             value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as 'ALL' | 'ACTIVE' | 'LOCKED')
-            }
+            onChange={(e) => {
+              setStatusFilter(e.target.value as 'ALL' | 'ACTIVE' | 'LOCKED');
+              setCurrentPage(1);
+            }}
             className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none"
           >
             <option value="ALL">Mọi trạng thái</option>
@@ -170,7 +205,10 @@ export const AccountManagementPage: React.FC = () => {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               placeholder="Tìm theo tên, email, SĐT, mã..."
               className="w-full h-9 pl-9 pr-3.5 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
             />
@@ -193,9 +231,13 @@ export const AccountManagementPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 text-xs">
-              {filteredUsers.map((user) => {
+              {paginatedUsers.map((user) => {
                 const isSelf = currentUser?.id === user.id;
+                const isCustomer = user.role === 'KhachHang';
                 const orderCount = orders.filter((o) => o.userId === user.id).length;
+                const lockLogCount = accountLockHistories.filter(
+                  (h) => h.userId === user.id
+                ).length;
 
                 return (
                   <tr
@@ -204,7 +246,15 @@ export const AccountManagementPage: React.FC = () => {
                   >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-200 via-indigo-300 to-purple-300 shrink-0" />
+                        {user.avatar ? (
+                          <img
+                            src={user.avatar}
+                            alt={user.fullName}
+                            className="w-9 h-9 rounded-full object-cover border border-zinc-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-200 via-indigo-300 to-purple-300 shrink-0" />
+                        )}
                         <div>
                           <div className="font-semibold text-zinc-900 flex items-center gap-1.5">
                             <span>{user.fullName}</span>
@@ -231,22 +281,17 @@ export const AccountManagementPage: React.FC = () => {
                     </td>
 
                     <td className="py-3 px-4">
-                      <select
-                        disabled={isSelf}
-                        value={user.role}
-                        onChange={(e) => {
-                          const res = updateAccountRole(
-                            user.id,
-                            e.target.value as UserRole
-                          );
-                          setFeedback({ ok: res.ok, text: res.message });
-                        }}
-                        className="h-8 px-2.5 rounded-lg bg-[#f4f4f5] text-xs font-semibold text-zinc-800 disabled:opacity-60 focus:outline-none"
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          user.role === 'QuanLy'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+                            : user.role === 'NhanVien'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200/70'
+                              : 'bg-zinc-100 text-zinc-700 border-zinc-200/70'
+                        }`}
                       >
-                        <option value="CUSTOMER">CUSTOMER</option>
-                        <option value="STAFF">STAFF</option>
-                        <option value="ADMIN">ADMIN</option>
-                      </select>
+                        {ROLE_LABELS[user.role]}
+                      </span>
                     </td>
 
                     <td className="py-3 px-4">
@@ -274,24 +319,43 @@ export const AccountManagementPage: React.FC = () => {
                           <ShieldCheck className="w-3.5 h-3.5" />
                           Đang đăng nhập
                         </span>
-                      ) : user.isLocked ? (
-                        <button
-                          type="button"
-                          onClick={() => handleUnlock(user)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold transition-colors"
-                        >
-                          <Unlock className="w-3.5 h-3.5" />
-                          <span>Mở khóa</span>
-                        </button>
+                      ) : !isCustomer ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-zinc-400">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          Tài khoản nội bộ
+                        </span>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => setLockingUser(user)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-semibold transition-colors"
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>Khóa TK</span>
-                        </button>
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setHistoryUser(user)}
+                            title="Xem lịch sử khóa / mở khóa"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px] font-medium transition-colors"
+                          >
+                            <History className="w-3.5 h-3.5" />
+                            <span>Lịch sử{lockLogCount > 0 ? ` (${lockLogCount})` : ''}</span>
+                          </button>
+
+                          {user.isLocked ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUnlock(user)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-semibold transition-colors"
+                            >
+                              <Unlock className="w-3.5 h-3.5" />
+                              <span>Mở khóa</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setLockingUser(user)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-semibold transition-colors"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Khóa TK</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -302,7 +366,15 @@ export const AccountManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Lock User Modal */}
+      <PaginationBar
+        currentPage={currentPage}
+        totalItems={filteredUsers.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        itemLabel="tài khoản"
+      />
+
+      {/* Lock User Modal (UC-10, ISS-20) */}
       {lockingUser && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
           <form
@@ -321,6 +393,16 @@ export const AccountManagementPage: React.FC = () => {
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {lockingUserActiveOrders > 0 && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/80 flex items-start gap-2.5 text-xs text-amber-900">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong>Cảnh báo đơn hàng đang xử lý:</strong> Khách hàng này hiện có{' '}
+                  <strong>{lockingUserActiveOrders}</strong> đơn hàng chưa hoàn thành. Các đơn hiện tại vẫn tiếp tục xử lý bình thường.
+                </div>
+              </div>
+            )}
 
             <p className="text-xs text-zinc-600 bg-rose-50/70 border border-rose-200/70 p-3 rounded-xl">
               Tài khoản bị khóa sẽ không thể đăng nhập hoặc đặt hàng mới cho đến khi được Quản trị viên mở khóa.
@@ -372,6 +454,75 @@ export const AccountManagementPage: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Lock History Modal (UC-10, ISS-20) */}
+      {historyUser && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-zinc-200/80 max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-zinc-900">
+                  Lịch sử khóa / mở khóa tài khoản
+                </h3>
+                <p className="text-xs text-zinc-500 mt-0.5">
+                  {historyUser.fullName} ({historyUser.email})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryUser(null)}
+                className="w-8 h-8 rounded-full bg-zinc-100 text-zinc-500 flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {selectedUserLockLogs.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60 text-center text-xs text-zinc-500">
+                Tài khoản này chưa có lịch sử khóa hoặc mở khóa nào.
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                {selectedUserLockLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="p-3.5 rounded-2xl bg-[#f8f9fa] border border-zinc-200/60 space-y-1 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                          log.action === 'LOCK'
+                            ? 'bg-rose-50 text-rose-700'
+                            : 'bg-emerald-50 text-emerald-700'
+                        }`}
+                      >
+                        {log.action === 'LOCK' ? 'Khóa tài khoản' : 'Mở khóa tài khoản'}
+                      </span>
+                      <span className="text-[11px] text-zinc-400">
+                        {formatDateTime(log.createdAt)}
+                      </span>
+                    </div>
+                    <p className="text-zinc-800 font-medium">{log.reason}</p>
+                    <p className="text-[11px] text-zinc-500">
+                      Thực hiện bởi: {log.actorName}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setHistoryUser(null)}
+                className="px-4 py-2 rounded-full bg-zinc-900 text-white text-xs font-semibold"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

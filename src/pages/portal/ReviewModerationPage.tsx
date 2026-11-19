@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { Review } from '../../types/domain';
 import { formatDateTime } from '../../utils/formatters';
 
@@ -30,20 +31,37 @@ export const ReviewModerationPage: React.FC = () => {
 
   const [replyFilter, setReplyFilter] = useState<'ALL' | 'UNANSWERED' | 'ANSWERED'>('ALL');
   const [starFilter, setStarFilter] = useState<number | 'ALL'>('ALL');
+  const [withImagesOnly, setWithImagesOnly] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
 
+  const pageSize = 6;
+
   // Admin delete modal
   const [deletingReview, setDeletingReview] = useState<Review | null>(null);
   const [deleteReason, setDeleteReason] = useState('Ngôn từ không phù hợp / Spam quảng cáo');
+
+  const dateRangeError =
+    dateFrom && dateTo && dateFrom > dateTo
+      ? 'Ngày bắt đầu không được lớn hơn ngày kết thúc.'
+      : null;
 
   const filteredReviews = useMemo(() => {
     return reviews.filter((r) => {
       if (replyFilter === 'UNANSWERED' && r.storeReply) return false;
       if (replyFilter === 'ANSWERED' && !r.storeReply) return false;
       if (starFilter !== 'ALL' && r.rating !== starFilter) return false;
+      if (withImagesOnly && (!r.images || r.images.length === 0)) return false;
+      if (!dateRangeError) {
+        const revDay = r.createdAt.slice(0, 10);
+        if (dateFrom && revDay < dateFrom) return false;
+        if (dateTo && revDay > dateTo) return false;
+      }
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -56,15 +74,20 @@ export const ReviewModerationPage: React.FC = () => {
       }
       return true;
     });
-  }, [reviews, replyFilter, starFilter, searchQuery, products]);
+  }, [reviews, replyFilter, starFilter, withImagesOnly, dateFrom, dateTo, dateRangeError, searchQuery, products]);
+
+  const paginatedReviews = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredReviews.slice(start, start + pageSize);
+  }, [filteredReviews, currentPage]);
 
   const activeReview = useMemo(() => {
     if (selectedReviewId) {
       const found = reviews.find((r) => r.id === selectedReviewId);
       if (found) return found;
     }
-    return filteredReviews[0] || null;
-  }, [reviews, filteredReviews, selectedReviewId]);
+    return paginatedReviews[0] || filteredReviews[0] || null;
+  }, [reviews, paginatedReviews, filteredReviews, selectedReviewId]);
 
   useEffect(() => {
     if (activeReview) {
@@ -146,119 +169,207 @@ export const ReviewModerationPage: React.FC = () => {
         </div>
       )}
 
-      {/* Filter Bar */}
-      <div className="bg-white rounded-2xl border border-zinc-200/80 p-3.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
-          {(
-            [
-              { id: 'ALL', label: 'Tất cả' },
-              { id: 'UNANSWERED', label: `Chưa phản hồi (${unansweredCount})` },
-              {
-                id: 'ANSWERED',
-                label: `Đã phản hồi (${reviews.length - unansweredCount})`,
-              },
-            ] as const
-          ).map((tab) => (
+      {/* Filter Bar (ISS-12) */}
+      <div className="bg-white rounded-2xl border border-zinc-200/80 p-3.5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full">
+            {(
+              [
+                { id: 'ALL', label: 'Tất cả' },
+                { id: 'UNANSWERED', label: `Chưa phản hồi (${unansweredCount})` },
+                {
+                  id: 'ANSWERED',
+                  label: `Đã phản hồi (${reviews.length - unansweredCount})`,
+                },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  setReplyFilter(tab.id);
+                  setCurrentPage(1);
+                }}
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                  replyFilter === tab.id
+                    ? 'bg-white text-zinc-900 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 flex-1 justify-end">
             <button
-              key={tab.id}
               type="button"
-              onClick={() => setReplyFilter(tab.id)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                replyFilter === tab.id
-                  ? 'bg-white text-zinc-900 shadow-sm'
-                  : 'text-zinc-500 hover:text-zinc-900'
+              onClick={() => {
+                setWithImagesOnly((prev) => !prev);
+                setCurrentPage(1);
+              }}
+              className={`h-9 px-3.5 rounded-full text-xs font-medium transition-colors ${
+                withImagesOnly
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-[#f4f4f5] text-zinc-700 hover:bg-zinc-200/70'
               }`}
             >
-              {tab.label}
+              Có hình ảnh
             </button>
-          ))}
+
+            <select
+              value={starFilter}
+              onChange={(e) => {
+                setStarFilter(
+                  e.target.value === 'ALL' ? 'ALL' : Number(e.target.value)
+                );
+                setCurrentPage(1);
+              }}
+              className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none"
+            >
+              <option value="ALL">Mọi mức sao</option>
+              <option value="5">5 sao</option>
+              <option value="4">4 sao</option>
+              <option value="3">3 sao</option>
+              <option value="2">2 sao</option>
+              <option value="1">1 sao</option>
+            </select>
+
+            <div className="relative w-full sm:w-56">
+              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                placeholder="Tìm tên KH, sản phẩm, nội dung..."
+                className="w-full h-9 pl-9 pr-3.5 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
+              />
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 flex-1 justify-end">
-          <select
-            value={starFilter}
-            onChange={(e) =>
-              setStarFilter(
-                e.target.value === 'ALL' ? 'ALL' : Number(e.target.value)
-              )
-            }
-            className="h-9 px-3 rounded-full bg-[#f4f4f5] text-xs font-medium text-zinc-700 focus:outline-none"
-          >
-            <option value="ALL">Mọi mức sao</option>
-            <option value="5">5 sao</option>
-            <option value="4">4 sao</option>
-            <option value="3">3 sao</option>
-            <option value="2">2 sao</option>
-            <option value="1">1 sao</option>
-          </select>
-
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm theo tên KH, sản phẩm, nội dung..."
-              className="w-full h-9 pl-9 pr-3.5 rounded-full bg-[#f4f4f5] text-xs text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:bg-white border border-transparent focus:border-zinc-300"
-            />
-          </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs pt-2 border-t border-zinc-100">
+          <span className="text-zinc-500">Ngày đánh giá:</span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Từ ngày"
+            className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+          />
+          <span className="text-zinc-400">–</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setCurrentPage(1);
+            }}
+            aria-label="Đến ngày"
+            className="h-8 px-3 rounded-full bg-[#f4f4f5] text-zinc-800 border border-transparent focus:border-zinc-300 focus:bg-white focus:outline-none"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setDateFrom('');
+                setDateTo('');
+                setCurrentPage(1);
+              }}
+              className="h-8 px-3 rounded-full bg-zinc-100 hover:bg-zinc-200 text-zinc-600 font-medium"
+            >
+              Xóa ngày
+            </button>
+          )}
+          {dateRangeError && (
+            <span className="text-rose-600 font-medium ml-2">{dateRangeError}</span>
+          )}
         </div>
       </div>
 
       {/* Inbox Split View */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-        {/* Left Feed */}
-        <div className="lg:col-span-5 bg-white rounded-2xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
-          {filteredReviews.length === 0 ? (
-            <div className="p-10 text-center text-xs text-zinc-400">
-              Không có đánh giá nào khớp bộ lọc.
-            </div>
-          ) : (
-            filteredReviews.map((rev) => {
-              const prd = getProduct(rev.productId);
-              const isSelected = activeReview?.id === rev.id;
+        {/* Left Feed (ISS-19) */}
+        <div className="lg:col-span-5 space-y-3">
+          <div className="bg-white rounded-2xl border border-zinc-200/80 divide-y divide-zinc-100 overflow-hidden">
+            {filteredReviews.length === 0 ? (
+              <div className="p-10 text-center text-xs text-zinc-400">
+                Không có đánh giá nào khớp bộ lọc.
+              </div>
+            ) : (
+              paginatedReviews.map((rev) => {
+                const prd = getProduct(rev.productId);
+                const isSelected = activeReview?.id === rev.id;
 
-              return (
-                <button
-                  key={rev.id}
-                  type="button"
-                  onClick={() => setSelectedReviewId(rev.id)}
-                  className={`w-full text-left p-4 transition-colors flex items-start gap-3 ${
-                    isSelected ? 'bg-[#f1f5f9]/90' : 'hover:bg-zinc-50'
-                  }`}
-                >
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-200 via-blue-400 to-indigo-400 shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-zinc-900 truncate">
-                        {rev.userName}
-                      </span>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {!rev.storeReply && (
-                          <span
-                            title="Chưa phản hồi"
-                            className="w-2 h-2 rounded-full bg-blue-500"
-                          />
-                        )}
-                        <span className="text-[11px] font-semibold text-amber-500 flex items-center gap-0.5">
-                          {rev.rating}
-                          <Star className="w-3 h-3 fill-current" />
+                return (
+                  <button
+                    key={rev.id}
+                    type="button"
+                    onClick={() => setSelectedReviewId(rev.id)}
+                    className={`w-full text-left p-4 transition-colors flex items-start gap-3 ${
+                      isSelected ? 'bg-[#f1f5f9]/90' : 'hover:bg-zinc-50'
+                    }`}
+                  >
+                    {rev.userAvatar ? (
+                      <img
+                        src={rev.userAvatar}
+                        alt={rev.userName}
+                        className="w-9 h-9 rounded-full object-cover border border-zinc-200 shrink-0 mt-0.5"
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-sky-200 via-blue-400 to-indigo-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-zinc-900 truncate">
+                          {rev.userName}
                         </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!rev.storeReply && (
+                            <span
+                              title="Chưa phản hồi"
+                              className="w-2 h-2 rounded-full bg-blue-500"
+                            />
+                          )}
+                          <span className="text-[11px] font-semibold text-amber-500 flex items-center gap-0.5">
+                            {rev.rating}
+                            <Star className="w-3 h-3 fill-current" />
+                          </span>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="text-[11px] font-medium text-zinc-500 truncate">
-                      {prd?.name || rev.productId}
-                    </div>
+                      <div className="flex items-center gap-2 text-[11px] font-medium text-zinc-500">
+                        <span className="truncate">{prd?.name || rev.productId}</span>
+                        {rev.images && rev.images.length > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[10px] shrink-0">
+                            {rev.images.length} ảnh
+                          </span>
+                        )}
+                      </div>
 
-                    <p className="text-xs text-zinc-600 line-clamp-2">
-                      {rev.comment}
-                    </p>
-                  </div>
-                </button>
-              );
-            })
-          )}
+                      <p className="text-xs text-zinc-600 line-clamp-2">
+                        {rev.comment}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <PaginationBar
+            currentPage={currentPage}
+            totalItems={filteredReviews.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            itemLabel="đánh giá"
+          />
         </div>
 
         {/* Right Detail & Reply Box */}
@@ -272,7 +383,15 @@ export const ReviewModerationPage: React.FC = () => {
               {/* Top Customer & Product Info */}
               <div className="flex items-start justify-between gap-4 pb-4 border-b border-zinc-100">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-200 via-blue-400 to-indigo-400 shrink-0" />
+                  {activeReview.userAvatar ? (
+                    <img
+                      src={activeReview.userAvatar}
+                      alt={activeReview.userName}
+                      className="w-10 h-10 rounded-full object-cover border border-zinc-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-200 via-blue-400 to-indigo-400 shrink-0" />
+                  )}
                   <div>
                     <div className="flex items-center gap-2">
                       <h2 className="text-sm font-bold text-zinc-900">
@@ -290,7 +409,7 @@ export const ReviewModerationPage: React.FC = () => {
                   </div>
                 </div>
 
-                {currentUser?.role === 'ADMIN' && (
+                {currentUser?.role === 'QuanLy' && (
                   <button
                     type="button"
                     onClick={() => setDeletingReview(activeReview)}
@@ -339,14 +458,26 @@ export const ReviewModerationPage: React.FC = () => {
                 ) : null;
               })()}
 
-              {/* Customer Comment Content */}
-              <div className="space-y-1.5">
+              {/* Customer Comment Content & Attached Images (ISS-03) */}
+              <div className="space-y-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
                   Nội dung nhận xét
                 </div>
                 <p className="text-sm text-zinc-800 leading-relaxed bg-[#f8f9fa] p-4 rounded-2xl border border-zinc-200/60">
                   {activeReview.comment}
                 </p>
+                {activeReview.images && activeReview.images.length > 0 && (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {activeReview.images.map((imgUrl, idx) => (
+                      <img
+                        key={idx}
+                        src={imgUrl}
+                        alt={`Ảnh đính kèm ${idx + 1}`}
+                        className="w-20 h-20 rounded-xl object-cover border border-zinc-200"
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Store Reply Form */}

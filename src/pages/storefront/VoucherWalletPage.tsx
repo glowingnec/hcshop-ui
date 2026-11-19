@@ -15,6 +15,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { PaginationBar } from '../../components/common/PaginationBar';
 import { Voucher } from '../../types/domain';
 import { formatVND, formatDate } from '../../utils/formatters';
 
@@ -24,8 +25,11 @@ export const VoucherWalletPage: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<'AVAILABLE' | 'ALL'>('AVAILABLE');
+  const [currentPage, setCurrentPage] = useState(1);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
+
+  const pageSize = 6;
 
   // Calculate current active cart subtotal so user can immediately see if their cart qualifies
   const currentCartSubtotal = useMemo(() => {
@@ -74,6 +78,11 @@ export const VoucherWalletPage: React.FC = () => {
       return true;
     });
   }, [vouchers, filterTab, searchQuery]);
+
+  const paginatedVouchers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredVouchers.slice(start, start + pageSize);
+  }, [filteredVouchers, currentPage]);
 
   const handleCopyCode = (code: string) => {
     navigator.clipboard?.writeText(code).catch(() => {});
@@ -134,14 +143,20 @@ export const VoucherWalletPage: React.FC = () => {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="Tìm theo mã code (VD: HCSHOP10) hoặc mô tả ưu đãi..."
             className="w-full h-10 pl-10 pr-8 rounded-full bg-[#f4f4f5] text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:bg-white border border-transparent focus:border-zinc-300 transition-all"
           />
           {searchQuery && (
             <button
               type="button"
-              onClick={() => setSearchQuery('')}
+              onClick={() => {
+                setSearchQuery('');
+                setCurrentPage(1);
+              }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700"
             >
               <X className="w-3.5 h-3.5" />
@@ -152,7 +167,10 @@ export const VoucherWalletPage: React.FC = () => {
         <div className="flex items-center gap-1.5 bg-[#f4f4f5] p-1 rounded-full self-start sm:self-auto">
           <button
             type="button"
-            onClick={() => setFilterTab('AVAILABLE')}
+            onClick={() => {
+              setFilterTab('AVAILABLE');
+              setCurrentPage(1);
+            }}
             className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
               filterTab === 'AVAILABLE'
                 ? 'bg-white text-zinc-900 shadow-sm'
@@ -163,7 +181,10 @@ export const VoucherWalletPage: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setFilterTab('ALL')}
+            onClick={() => {
+              setFilterTab('ALL');
+              setCurrentPage(1);
+            }}
             className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
               filterTab === 'ALL'
                 ? 'bg-white text-zinc-900 shadow-sm'
@@ -189,8 +210,9 @@ export const VoucherWalletPage: React.FC = () => {
           </p>
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredVouchers.map((voucher) => {
+          {paginatedVouchers.map((voucher) => {
             const state = getVoucherState(voucher);
             const usagePercent = Math.min(
               100,
@@ -234,11 +256,11 @@ export const VoucherWalletPage: React.FC = () => {
                   {/* Discount headline */}
                   <div className="flex items-baseline gap-2">
                     <h3 className="text-lg font-bold text-zinc-900">
-                      {voucher.discountType === 'PERCENT'
+                      {voucher.discountType === 'PhanTram'
                         ? `Giảm ${voucher.discountValue}%`
                         : `Giảm ${formatVND(voucher.discountValue)}`}
                     </h3>
-                    {voucher.discountType === 'PERCENT' &&
+                    {voucher.discountType === 'PhanTram' &&
                       voucher.maxDiscountAmount && (
                         <span className="text-[12px] text-zinc-500">
                           (Tối đa {formatVND(voucher.maxDiscountAmount)})
@@ -350,6 +372,14 @@ export const VoucherWalletPage: React.FC = () => {
             );
           })}
         </div>
+        <PaginationBar
+          currentPage={currentPage}
+          totalItems={filteredVouchers.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          itemLabel="mã giảm giá"
+        />
+        </>
       )}
 
       {/* Detail Modal (UC-47: Xem chi tiết mã giảm giá) */}
@@ -393,7 +423,7 @@ export const VoucherWalletPage: React.FC = () => {
               <div className="flex items-center justify-between py-1.5 border-b border-zinc-100">
                 <span className="text-zinc-500">1. Loại giảm giá</span>
                 <span className="font-semibold text-zinc-900">
-                  {selectedVoucher.discountType === 'PERCENT'
+                  {selectedVoucher.discountType === 'PhanTram'
                     ? `Theo phần trăm (${selectedVoucher.discountValue}%)`
                     : `Số tiền cố định (${formatVND(selectedVoucher.discountValue)})`}
                 </span>

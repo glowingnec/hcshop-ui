@@ -11,6 +11,7 @@ import { VoucherWalletPage } from './pages/storefront/VoucherWalletPage';
 import { AuthPage } from './pages/storefront/AuthPage';
 import { CustomerAccountPage } from './pages/storefront/CustomerAccountPage';
 import { CustomerOrdersPage } from './pages/storefront/CustomerOrdersPage';
+import { LoadingSpinner } from './components/common/StateFeedback';
 
 const PortalLayout = lazy(() =>
   import('./components/layout/PortalLayout').then((m) => ({ default: m.PortalLayout }))
@@ -56,7 +57,7 @@ export const App: React.FC = () => {
     <HashRouter>
       <AppProvider>
         <div className="min-h-screen flex flex-col bg-[#f8f9fa] text-zinc-900">
-          <Suspense fallback={<div className="p-8 text-xs text-zinc-400">Đang tải...</div>}>
+          <Suspense fallback={<LoadingSpinner message="Đang tải trang..." />}>
             <Routes>
               {/* Customer Storefront Routes */}
               <Route path="/" element={<StorefrontLayout />}>

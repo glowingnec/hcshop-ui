@@ -1,4 +1,8 @@
-export type UserRole = 'CUSTOMER' | 'STAFF' | 'ADMIN';
+export type UserRole = 'KhachHang' | 'NhanVien' | 'QuanLy';
+
+export type AccountStatus = 'HoatDong' | 'BiKhoa';
+
+export type Gender = 'Nam' | 'Nu' | 'Khac';
 
 export interface User {
   id: string;
@@ -16,7 +20,16 @@ export interface User {
   lockoutUntil?: string;
   avatar?: string;
   dob?: string;
-  gender?: 'Nam' | 'Nữ' | 'Khác';
+  gender?: Gender;
+  createdAt: string;
+}
+
+export interface AccountLockHistory {
+  id: string;
+  userId: string;
+  action: 'LOCK' | 'UNLOCK';
+  reason: string;
+  actorName: string;
   createdAt: string;
 }
 
@@ -30,7 +43,6 @@ export interface ShippingAddress {
   ward: string;
   detailAddress: string;
   isDefault: boolean;
-  isOutOfDeliveryZone?: boolean;
 }
 
 export interface Category {
@@ -50,9 +62,7 @@ export interface Product {
   name: string;
   categoryId: string;
   price: number;
-  originalPrice?: number;
   description: string;
-  specs?: Record<string, string>;
   imageUrl: string;
   stock: number;
   minStockThreshold: number;
@@ -63,10 +73,10 @@ export interface Product {
 }
 
 export type StockMovementType =
-  | 'IMPORT'
-  | 'ADJUST_DECREASE'
-  | 'SALE'
-  | 'CANCEL_RESTORE';
+  | 'NhapTang'
+  | 'DieuChinhGiam'
+  | 'XuatBan'
+  | 'HoanDon';
 
 export interface StockHistory {
   id: string;
@@ -88,7 +98,7 @@ export interface CartItem {
   addedPrice: number;
 }
 
-export type DiscountType = 'PERCENT' | 'FIXED';
+export type DiscountType = 'PhanTram' | 'SoTien';
 
 export interface Voucher {
   id: string;
@@ -107,14 +117,14 @@ export interface Voucher {
 }
 
 export type OrderStatus =
-  | 'PENDING'     // Chờ xác nhận
-  | 'CONFIRMED'   // Đã xác nhận
-  | 'PREPARING'   // Đang chuẩn bị
-  | 'SHIPPING'    // Đang giao
-  | 'COMPLETED'   // Hoàn thành
-  | 'CANCELLED';  // Đã hủy
+  | 'ChoXacNhan'   // Chờ xác nhận
+  | 'DaXacNhan'    // Đã xác nhận
+  | 'DangChuanBi'  // Đang chuẩn bị
+  | 'DangGiao'     // Đang giao
+  | 'HoanThanh'    // Hoàn thành
+  | 'DaHuy';       // Đã hủy
 
-export type PaymentMethod = 'COD' | 'BANK_TRANSFER' | 'EWALLET';
+export type PaymentMethod = 'KhiNhanHang' | 'ChuyenKhoan' | 'ViDienTu';
 
 export interface OrderTimelineEntry {
   status: OrderStatus;

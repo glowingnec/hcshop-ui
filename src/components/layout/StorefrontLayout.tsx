@@ -18,6 +18,8 @@ import {
   UserX,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { UserRole } from '../../types/domain';
+import { IS_DEMO_MODE } from '../../utils/formatters';
 
 export const StorefrontLayout: React.FC = () => {
   const {
@@ -50,11 +52,13 @@ export const StorefrontLayout: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleRoleSwitch = (role: 'CUSTOMER' | 'STAFF' | 'ADMIN' | 'GUEST') => {
+  const handleRoleSwitch = (role: UserRole | 'GUEST') => {
     setMenuOpen(false);
     switchDemoRole(role);
-    if (role === 'STAFF' || role === 'ADMIN') {
+    if (role === 'QuanLy') {
       navigate('/portal');
+    } else if (role === 'NhanVien') {
+      navigate('/portal/orders');
     } else {
       navigate('/');
     }
@@ -117,7 +121,15 @@ export const StorefrontLayout: React.FC = () => {
                   onClick={() => setMenuOpen((prev) => !prev)}
                   className="flex items-center gap-2.5 pl-1.5 pr-3 h-9 rounded-full bg-white border border-zinc-200/80 hover:bg-zinc-100 transition-colors focus:outline-none"
                 >
-                  <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-sky-200 via-indigo-300 to-purple-300 shrink-0" />
+                  {currentUser?.avatar ? (
+                    <img
+                      src={currentUser.avatar}
+                      alt={currentUser.fullName}
+                      className="w-6 h-6 rounded-full object-cover border border-zinc-200 shrink-0"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-sky-200 via-indigo-300 to-purple-300 shrink-0" />
+                  )}
                   <div className="hidden sm:block text-left leading-none">
                     <p className="text-[11px] font-semibold text-zinc-900">
                       {currentUser ? currentUser.fullName : 'Guest'}
@@ -190,82 +202,99 @@ export const StorefrontLayout: React.FC = () => {
                       <span>Sổ địa chỉ</span>
                     </button>
 
-                    <div className="my-1.5 border-t border-zinc-100" />
-                    <div className="px-3.5 py-1.5 text-[11px] font-medium text-zinc-400">
-                      Chuyển vai trò Demo
-                    </div>
+                    {IS_DEMO_MODE && (
+                      <>
+                        <div className="my-1.5 border-t border-zinc-100" />
+                        <div className="px-3.5 py-1.5 text-[11px] font-medium text-zinc-400">
+                          Chuyển vai trò Demo
+                        </div>
 
-                    <button
-                      onClick={() => handleRoleSwitch('GUEST')}
-                      className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <UserX className="w-4 h-4 text-zinc-400" />
-                        <span>Khách vãng lai</span>
-                      </span>
-                      {!currentUser && <Check className="w-3.5 h-3.5 text-blue-600" />}
-                    </button>
+                        <button
+                          onClick={() => handleRoleSwitch('GUEST')}
+                          className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <UserX className="w-4 h-4 text-zinc-400" />
+                            <span>Khách vãng lai</span>
+                          </span>
+                          {!currentUser && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                        </button>
 
-                    <button
-                      onClick={() => handleRoleSwitch('CUSTOMER')}
-                      className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <UserCheck className="w-4 h-4 text-blue-500" />
-                        <span>Khách hàng (User)</span>
-                      </span>
-                      {currentUser?.role === 'CUSTOMER' && (
-                        <Check className="w-3.5 h-3.5 text-blue-600" />
-                      )}
-                    </button>
+                        <button
+                          onClick={() => handleRoleSwitch('KhachHang')}
+                          className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <UserCheck className="w-4 h-4 text-blue-500" />
+                            <span>Khách hàng (User)</span>
+                          </span>
+                          {currentUser?.role === 'KhachHang' && (
+                            <Check className="w-3.5 h-3.5 text-blue-600" />
+                          )}
+                        </button>
 
-                    <button
-                      onClick={() => handleRoleSwitch('STAFF')}
-                      className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <UserCog className="w-4 h-4 text-purple-500" />
-                        <span>Nhân viên (Staff)</span>
-                      </span>
-                      {currentUser?.role === 'STAFF' && (
-                        <Check className="w-3.5 h-3.5 text-blue-600" />
-                      )}
-                    </button>
+                        <button
+                          onClick={() => handleRoleSwitch('NhanVien')}
+                          className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <UserCog className="w-4 h-4 text-purple-500" />
+                            <span>Nhân viên (Staff)</span>
+                          </span>
+                          {currentUser?.role === 'NhanVien' && (
+                            <Check className="w-3.5 h-3.5 text-blue-600" />
+                          )}
+                        </button>
 
-                    <button
-                      onClick={() => handleRoleSwitch('ADMIN')}
-                      className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                        <span>Quản lý (Admin)</span>
-                      </span>
-                      {currentUser?.role === 'ADMIN' && (
-                        <Check className="w-3.5 h-3.5 text-blue-600" />
-                      )}
-                    </button>
+                        <button
+                          onClick={() => handleRoleSwitch('QuanLy')}
+                          className="w-full flex items-center justify-between px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
+                        >
+                          <span className="flex items-center gap-2.5">
+                            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                            <span>Quản lý (Admin)</span>
+                          </span>
+                          {currentUser?.role === 'QuanLy' && (
+                            <Check className="w-3.5 h-3.5 text-blue-600" />
+                          )}
+                        </button>
+                      </>
+                    )}
 
-                    <div className="my-1.5 border-t border-zinc-100" />
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        navigate('/portal');
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
-                    >
-                      <LayoutDashboard className="w-4 h-4 text-zinc-400" />
-                      <span>Mở trang Quản trị (/portal)</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        resetDemoData();
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
-                    >
-                      <RotateCcw className="w-4 h-4 text-zinc-400" />
-                      <span>Khôi phục dữ liệu mẫu</span>
-                    </button>
+                    {(IS_DEMO_MODE ||
+                      currentUser?.role === 'NhanVien' ||
+                      currentUser?.role === 'QuanLy') && (
+                      <>
+                        <div className="my-1.5 border-t border-zinc-100" />
+                        <button
+                          onClick={() => {
+                            setMenuOpen(false);
+                            navigate(
+                              currentUser?.role === 'NhanVien'
+                                ? '/portal/orders'
+                                : '/portal'
+                            );
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
+                        >
+                          <LayoutDashboard className="w-4 h-4 text-zinc-400" />
+                          <span>Mở trang Quản trị (/portal)</span>
+                        </button>
+                      </>
+                    )}
+
+                    {IS_DEMO_MODE && (
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          resetDemoData();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-zinc-100 text-zinc-700 text-left"
+                      >
+                        <RotateCcw className="w-4 h-4 text-zinc-400" />
+                        <span>Khôi phục dữ liệu mẫu</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
